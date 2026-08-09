@@ -1,0 +1,57 @@
+name: Build ObaCamera APK - Icon
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get project from existing workflow
+        run: |
+          mkdir -p /tmp/obacamera
+          curl -fsSL "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/.github/workflows/build.yml" \
+            -o /tmp/build.yml
+          sed -n "s/.*echo '\\([^']*\\)' | base64 -d.*/\\1/p" /tmp/build.yml \
+            | base64 -d > /tmp/obacamera/project.zip
+          unzip -q /tmp/obacamera/project.zip -d /tmp/obacamera
+
+      - name: Install icon
+        run: |
+          mkdir -p /tmp/obacamera/app/src/main/res/drawable
+          curl -fsSL "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png" \
+            -o /tmp/obacamera/app/src/main/res/drawable/icon.png
+
+          sed -i 's#<application#<application android:icon="@drawable/icon"#' \
+            /tmp/obacamera/app/src/main/AndroidManifest.xml
+
+          test -s /tmp/obacamera/app/src/main/res/drawable/icon.png
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.2'
+
+      - name: Build APK
+        working-directory: /tmp/obacamera
+        run: gradle assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ObaCamera-Icon
+          path: /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
