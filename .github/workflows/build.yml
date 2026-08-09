@@ -9,6 +9,9 @@ jobs:
 
     steps:
 
+      # ========================================
+      # 1. 元プロジェクト取得
+      # ========================================
       - name: Create project
         shell: bash
         run: |
@@ -43,10 +46,13 @@ jobs:
           if not data.startswith(b"PK"):
               raise RuntimeError("Decoded project is not a ZIP")
 
-          Path("/tmp/obacamera/project.zip").write_bytes(data)
+          Path(
+              "/tmp/obacamera/project.zip"
+          ).write_bytes(data)
           PY
 
           cd /tmp/obacamera
+
           unzip -q project.zip
 
           test -f app/build.gradle
@@ -55,6 +61,9 @@ jobs:
           echo "=== PROJECT CREATED ==="
 
 
+      # ========================================
+      # 2. Java
+      # ========================================
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -62,6 +71,9 @@ jobs:
           java-version: '17'
 
 
+      # ========================================
+      # 3. Android SDK
+      # ========================================
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
@@ -78,20 +90,28 @@ jobs:
           echo "=== ANDROID SDK READY ==="
 
 
+      # ========================================
+      # 4. Gradle
+      # ========================================
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
 
+      # ========================================
+      # 5. APK Build
+      # ========================================
       - name: Build APK
         working-directory: /tmp/obacamera
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=== WRITE BUILD CONFIG ==="
 
+          # ========================================
+          # Gradle settings
+          # ========================================
           cat > settings.gradle <<'SETTINGS_EOF'
           pluginManagement {
               repositories {
@@ -105,6 +125,7 @@ jobs:
               repositoriesMode.set(
                   org.gradle.api.initialization.resolve.RepositoriesMode.FAIL_ON_PROJECT_REPOS
               )
+
               repositories {
                   google()
                   mavenCentral()
@@ -112,8 +133,10 @@ jobs:
           }
 
           rootProject.name = "ObaCamera"
+
           include(":app")
           SETTINGS_EOF
+
 
           cat > build.gradle <<'ROOT_EOF'
           plugins {
@@ -121,6 +144,10 @@ jobs:
           }
           ROOT_EOF
 
+
+          # ========================================
+          # app/build.gradle
+          # ========================================
           cat > app/build.gradle <<'APP_EOF'
           plugins {
               id 'com.android.application'
@@ -128,42 +155,56 @@ jobs:
 
           android {
               namespace 'com.example.obacamera'
+
               compileSdk 35
 
               defaultConfig {
                   applicationId 'com.example.obacamera'
+
                   minSdk 26
+
                   targetSdk 35
+
                   versionCode 2
+
                   versionName '1.1'
               }
           }
 
           dependencies {
+
               def camerax_version = "1.5.3"
 
               implementation "androidx.camera:camera-core:${camerax_version}"
+
               implementation "androidx.camera:camera-camera2:${camerax_version}"
+
               implementation "androidx.camera:camera-lifecycle:${camerax_version}"
+
               implementation "androidx.camera:camera-view:${camerax_version}"
+
               implementation "androidx.activity:activity:1.10.1"
           }
           APP_EOF
 
 
-          echo "=== WRITE MAIN ACTIVITY ==="
-
+          # ========================================
+          # MainActivity.java
+          # ========================================
           cat > app/src/main/java/com/example/obacamera/MainActivity.java <<'JAVA_EOF'
           package com.example.obacamera;
 
           import android.Manifest;
           import android.content.ContentValues;
+          import android.content.Context;
           import android.content.pm.PackageManager;
+          import android.graphics.Rect;
           import android.media.SoundPool;
           import android.os.Build;
           import android.os.Bundle;
           import android.os.Environment;
           import android.provider.MediaStore;
+          import android.util.SparseBooleanArray;
           import android.view.Gravity;
           import android.view.MotionEvent;
           import android.view.WindowManager;
@@ -183,48 +224,111 @@ jobs:
 
           import com.google.common.util.concurrent.ListenableFuture;
 
+
           public class MainActivity extends ComponentActivity {
+
 
               private static final int REQ_CAMERA = 10;
 
+
               private PreviewView previewView;
+
               private Button shutter;
 
+
               private ImageCapture imageCapture;
+
               private ProcessCameraProvider cameraProvider;
 
-              private SoundPool soundPool;
-              private int shutterSoundId;
-              private boolean soundReady;
-              private boolean cameraReady;
 
-              private boolean touchTriggered;
+              private SoundPool soundPool;
+
+              private int shutterSoundId;
+
+              private boolean soundReady = false;
+
+              private boolean cameraReady = false;
+
+
+              /*
+               * pointer IDごとに
+               *
+               * 「現在シャッターボタン内にいるか」
+               *
+               * を保持する。
+               *
+               * これにより、
+               *
+               * 指を画面に置いたまま
+               * ↓
+               * ボタンへ入る
+               * ↓
+               * 撮影
+               * ↓
+               * ボタンから出る
+               * ↓
+               * 再びボタンへ入る
+               * ↓
+               * また撮影
+               *
+               * が可能になる。
+               */
+              private final SparseBooleanArray
+                      pointerInsideButton =
+                      new SparseBooleanArray();
+
 
               @Override
-              protected void onCreate(Bundle savedInstanceState) {
+              protected void onCreate(
+                      Bundle savedInstanceState
+              ) {
+
                   super.onCreate(savedInstanceState);
 
-                  getWindow().setStatusBarColor(0xFF000000);
-                  getWindow().setNavigationBarColor(0xFF000000);
 
-                  getWindow().addFlags(
-                          WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                  getWindow().setStatusBarColor(
+                          0xFF000000
                   );
 
+                  getWindow().setNavigationBarColor(
+                          0xFF000000
+                  );
+
+                  getWindow().addFlags(
+                          WindowManager.LayoutParams
+                                  .FLAG_KEEP_SCREEN_ON
+                  );
+
+
+                  /*
+                   * 全画面タッチ監視用ViewGroup
+                   */
                   TouchFrameLayout root =
                           new TouchFrameLayout(this);
 
-                  root.setBackgroundColor(0xFF000000);
+                  root.setBackgroundColor(
+                          0xFF000000
+                  );
 
-                  previewView = new PreviewView(this);
+
+                  /*
+                   * Camera Preview
+                   */
+                  previewView =
+                          new PreviewView(this);
 
                   previewView.setImplementationMode(
-                          PreviewView.ImplementationMode.PERFORMANCE
+                          PreviewView
+                                  .ImplementationMode
+                                  .PERFORMANCE
                   );
 
                   previewView.setScaleType(
-                          PreviewView.ScaleType.FILL_CENTER
+                          PreviewView
+                                  .ScaleType
+                                  .FILL_CENTER
                   );
+
 
                   root.addView(
                           previewView,
@@ -234,27 +338,56 @@ jobs:
                           )
                   );
 
-                  shutter = new Button(this);
 
-                  shutter.setText("写真を撮る");
+                  /*
+                   * シャッターボタン
+                   *
+                   * 画面幅60%
+                   * 水平方向中央
+                   */
+                  shutter =
+                          new Button(this);
+
+                  shutter.setText(
+                          "写真を撮る"
+                  );
+
                   shutter.setTextSize(22);
-                  shutter.setTextColor(0xFF000000);
+
+                  shutter.setTextColor(
+                          0xFF000000
+                  );
+
                   shutter.setAllCaps(false);
-                  shutter.setBackgroundColor(0xFFFFFFFF);
+
+                  shutter.setBackgroundColor(
+                          0xFFFFFFFF
+                  );
+
                   shutter.setEnabled(false);
 
-                  FrameLayout.LayoutParams shutterParams =
+
+                  int screenWidth =
+                          getResources()
+                                  .getDisplayMetrics()
+                                  .widthPixels;
+
+
+                  int shutterWidth =
+                          (int) (
+                                  screenWidth * 0.60f
+                          );
+
+
+                  FrameLayout.LayoutParams
+                          shutterParams =
                           new FrameLayout.LayoutParams(
-                                  (int) (
-                                          getResources()
-                                                  .getDisplayMetrics()
-                                                  .widthPixels
-                                                  * 0.60f
-                                  ),
+                                  shutterWidth,
                                   dp(92),
                                   Gravity.BOTTOM |
                                           Gravity.CENTER_HORIZONTAL
                           );
+
 
                   shutterParams.setMargins(
                           0,
@@ -263,31 +396,57 @@ jobs:
                           dp(24)
                   );
 
+
                   root.addView(
                           shutter,
                           shutterParams
                   );
 
+
+                  /*
+                   * Button自身のクリック処理は使用しない。
+                   *
+                   * 全タッチを親ViewGroup側で
+                   * 統一して判定する。
+                   *
+                   * これにより多点タッチでも
+                   * 判定経路を一本化できる。
+                   */
+                  shutter.setClickable(false);
+
+                  shutter.setFocusable(false);
+
+
                   setContentView(root);
 
+
                   initializeShutterSound();
+
 
                   if (
                           checkSelfPermission(
                                   Manifest.permission.CAMERA
-                          ) != PackageManager.PERMISSION_GRANTED
+                          )
+                          != PackageManager.PERMISSION_GRANTED
                   ) {
+
                       requestPermissions(
                               new String[]{
                                       Manifest.permission.CAMERA
                               },
                               REQ_CAMERA
                       );
+
                   } else {
+
                       startCamera();
                   }
               }
 
+
+              # ========================================
+              # シャッター音
+              # ========================================
               private void initializeShutterSound() {
 
                   soundPool =
@@ -295,18 +454,23 @@ jobs:
                                   .setMaxStreams(1)
                                   .build();
 
+
                   soundPool.setOnLoadCompleteListener(
                           (pool, sampleId, status) -> {
 
                               if (
                                       status == 0 &&
-                                      sampleId == shutterSoundId
+                                      sampleId ==
+                                              shutterSoundId
                               ) {
+
                                   soundReady = true;
+
                                   updateShutterState();
                               }
                           }
                   );
+
 
                   shutterSoundId =
                           soundPool.load(
@@ -316,15 +480,25 @@ jobs:
                           );
               }
 
+
               private void updateShutterState() {
 
+                  /*
+                   * 撮影中でもボタンを無効化しない。
+                   *
+                   * 多点タッチによる連続撮影を
+                   * 可能にするため。
+                   */
                   shutter.setEnabled(
                           cameraReady &&
                                   soundReady
                   );
               }
 
-              private int dp(int value) {
+
+              private int dp(
+                      int value
+              ) {
 
                   return (int) (
                           value *
@@ -335,16 +509,23 @@ jobs:
                   );
               }
 
+
+              # ========================================
+              # CameraX
+              # ========================================
               private void startCamera() {
 
                   cameraReady = false;
 
                   updateShutterState();
 
-                  ListenableFuture<ProcessCameraProvider> future =
-                          ProcessCameraProvider.getInstance(
-                                  this
-                          );
+
+                  ListenableFuture<
+                          ProcessCameraProvider
+                          > future =
+                          ProcessCameraProvider
+                                  .getInstance(this);
+
 
                   future.addListener(
                           () -> {
@@ -354,16 +535,21 @@ jobs:
                                   cameraProvider =
                                           future.get();
 
-                                  cameraProvider.unbindAll();
+
+                                  cameraProvider
+                                          .unbindAll();
+
 
                                   Preview preview =
                                           new Preview.Builder()
                                                   .build();
 
+
                                   preview.setSurfaceProvider(
                                           previewView
                                                   .getSurfaceProvider()
                                   );
+
 
                                   imageCapture =
                                           new ImageCapture.Builder()
@@ -378,26 +564,34 @@ jobs:
                                                   )
                                                   .build();
 
+
                                   CameraSelector selector =
                                           CameraSelector
                                                   .DEFAULT_BACK_CAMERA;
 
-                                  cameraProvider.bindToLifecycle(
-                                          this,
-                                          selector,
-                                          preview,
-                                          imageCapture
-                                  );
+
+                                  cameraProvider
+                                          .bindToLifecycle(
+                                                  this,
+                                                  selector,
+                                                  preview,
+                                                  imageCapture
+                                          );
+
 
                                   cameraReady = true;
 
                                   updateShutterState();
 
-                              } catch (Exception e) {
+
+                              } catch (
+                                      Exception e
+                              ) {
 
                                   cameraReady = false;
 
                                   updateShutterState();
+
 
                                   Toast.makeText(
                                           this,
@@ -407,39 +601,48 @@ jobs:
                               }
 
                           },
-                          ContextCompat.getMainExecutor(
-                                  this
-                          )
+                          ContextCompat
+                                  .getMainExecutor(this)
                   );
               }
 
+
+              # ========================================
+              # 撮影
+              # ========================================
               private void takePhoto() {
 
                   if (
                           imageCapture == null ||
-                                  !cameraReady ||
-                                  !soundReady
+                          !cameraReady ||
+                          !soundReady
                   ) {
+
                       return;
                   }
 
-                  shutter.setEnabled(false);
 
                   long now =
                           System.currentTimeMillis();
 
+
                   ContentValues values =
                           new ContentValues();
 
+
                   values.put(
-                          MediaStore.Images.Media.DISPLAY_NAME,
+                          MediaStore.Images.Media
+                                  .DISPLAY_NAME,
                           "IMG_" + now + ".jpg"
                   );
 
+
                   values.put(
-                          MediaStore.Images.Media.MIME_TYPE,
+                          MediaStore.Images.Media
+                                  .MIME_TYPE,
                           "image/jpeg"
                   );
+
 
                   if (
                           Build.VERSION.SDK_INT >=
@@ -447,25 +650,41 @@ jobs:
                   ) {
 
                       values.put(
-                              MediaStore.Images.Media.RELATIVE_PATH,
-                              Environment.DIRECTORY_DCIM +
+                              MediaStore.Images.Media
+                                      .RELATIVE_PATH,
+                              Environment
+                                      .DIRECTORY_DCIM +
                                       "/Camera"
                       );
 
+
                       values.put(
-                              MediaStore.Images.Media.IS_PENDING,
+                              MediaStore.Images.Media
+                                      .IS_PENDING,
                               1
                       );
                   }
 
-                  ImageCapture.OutputFileOptions outputOptions =
-                          new ImageCapture.OutputFileOptions.Builder(
-                                  getContentResolver(),
-                                  MediaStore.Images.Media
-                                          .EXTERNAL_CONTENT_URI,
-                                  values
-                          ).build();
 
+                  ImageCapture
+                          .OutputFileOptions
+                          outputOptions =
+                          new ImageCapture
+                                  .OutputFileOptions
+                                  .Builder(
+                                          getContentResolver(),
+                                          MediaStore.Images.Media
+                                                  .EXTERNAL_CONTENT_URI,
+                                          values
+                                  )
+                                  .build();
+
+
+                  /*
+                   * シャッター音
+                   *
+                   * 音量0.7
+                   */
                   soundPool.play(
                           shutterSoundId,
                           0.7f,
@@ -475,27 +694,44 @@ jobs:
                           1.0f
                   );
 
+
+                  /*
+                   * 撮影ボタンを無効化しない。
+                   *
+                   * 指②で撮影
+                   * ↓
+                   * 指②を離す
+                   * ↓
+                   * 指②で再タップ
+                   *
+                   * を可能にする。
+                   */
                   imageCapture.takePicture(
                           outputOptions,
-                          ContextCompat.getMainExecutor(
-                                  this
-                          ),
-                          new ImageCapture.OnImageSavedCallback() {
+                          ContextCompat
+                                  .getMainExecutor(this),
+
+                          new ImageCapture
+                                  .OnImageSavedCallback() {
 
                               @Override
                               public void onImageSaved(
                                       @NonNull
-                                      ImageCapture.OutputFileResults result
+                                      ImageCapture
+                                              .OutputFileResults
+                                              result
                               ) {
 
                                   if (
                                           Build.VERSION.SDK_INT >=
                                                   Build.VERSION_CODES.Q &&
-                                          result.getSavedUri() != null
+                                          result.getSavedUri() !=
+                                                  null
                                   ) {
 
                                       ContentValues publish =
                                               new ContentValues();
+
 
                                       publish.put(
                                               MediaStore.Images.Media
@@ -503,17 +739,16 @@ jobs:
                                               0
                                       );
 
-                                      getContentResolver().update(
-                                              result.getSavedUri(),
-                                              publish,
-                                              null,
-                                              null
-                                      );
+
+                                      getContentResolver()
+                                              .update(
+                                                      result.getSavedUri(),
+                                                      publish,
+                                                      null,
+                                                      null
+                                              );
                                   }
 
-                                  touchTriggered = false;
-
-                                  updateShutterState();
 
                                   Toast.makeText(
                                           MainActivity.this,
@@ -522,15 +757,13 @@ jobs:
                                   ).show();
                               }
 
+
                               @Override
                               public void onError(
                                       @NonNull
-                                      ImageCaptureException exception
+                                      ImageCaptureException
+                                              exception
                               ) {
-
-                                  touchTriggered = false;
-
-                                  updateShutterState();
 
                                   Toast.makeText(
                                           MainActivity.this,
@@ -542,37 +775,135 @@ jobs:
                   );
               }
 
-              private void handleGlobalTouch(
+
+              # ========================================
+              # 指ごとの多点タッチ判定
+              # ========================================
+              private void inspectTouchEvent(
                       MotionEvent event
               ) {
 
-                  if (shutter == null) {
+                  if (
+                          shutter == null
+                  ) {
+
                       return;
                   }
 
-                  if (!shutter.isEnabled()) {
-                      return;
-                  }
 
                   int action =
                           event.getActionMasked();
 
+
+                  int actionIndex =
+                          event.getActionIndex();
+
+
+                  /*
+                   * Buttonの矩形。
+                   *
+                   * getHitRect()は親View座標系なので
+                   * onInterceptTouchEvent()の座標と
+                   * そのまま比較できる。
+                   */
+                  Rect buttonRect =
+                          new Rect();
+
+
+                  shutter.getHitRect(
+                          buttonRect
+                  );
+
+
+                  /*
+                   * ====================================
+                   * 新しい指が接触
+                   * ====================================
+                   */
                   if (
-                          action == MotionEvent.ACTION_DOWN ||
-                          action == MotionEvent.ACTION_POINTER_DOWN ||
-                          action == MotionEvent.ACTION_MOVE
+                          action ==
+                                  MotionEvent
+                                          .ACTION_DOWN ||
+                          action ==
+                                  MotionEvent
+                                          .ACTION_POINTER_DOWN
                   ) {
 
-                      android.graphics.Rect rect =
-                              new android.graphics.Rect();
+                      int pointerId =
+                              event.getPointerId(
+                                      actionIndex
+                              );
 
-                      shutter.getHitRect(rect);
+
+                      float x =
+                              event.getX(
+                                      actionIndex
+                              );
+
+                      float y =
+                              event.getY(
+                                      actionIndex
+                              );
+
+
+                      boolean inside =
+                              buttonRect.contains(
+                                      (int) x,
+                                      (int) y
+                              );
+
+
+                      pointerInsideButton.put(
+                              pointerId,
+                              inside
+                      );
+
+
+                      /*
+                       * 指が最初からボタン内なら
+                       * 即撮影。
+                       */
+                      if (
+                              inside
+                      ) {
+
+                          takePhoto();
+                      }
+
+
+                      return;
+                  }
+
+
+                  /*
+                   * ====================================
+                   * 指が移動
+                   * ====================================
+                   *
+                   * 全pointerを確認する。
+                   *
+                   * 「ボタン外 → ボタン内」
+                   * になった瞬間だけ撮影する。
+                   */
+                  if (
+                          action ==
+                                  MotionEvent
+                                          .ACTION_MOVE
+                  ) {
+
+                      int pointerCount =
+                              event.getPointerCount();
+
 
                       for (
                               int i = 0;
-                              i < event.getPointerCount();
+                              i < pointerCount;
                               i++
                       ) {
+
+                          int pointerId =
+                                  event.getPointerId(i);
+
 
                           float x =
                                   event.getX(i);
@@ -580,56 +911,138 @@ jobs:
                           float y =
                                   event.getY(i);
 
-                          if (
-                                  rect.contains(
+
+                          boolean inside =
+                                  buttonRect.contains(
                                           (int) x,
                                           (int) y
-                                  )
+                                  );
+
+
+                          boolean wasInside =
+                                  pointerInsideButton
+                                          .get(
+                                                  pointerId,
+                                                  false
+                                          );
+
+
+                          /*
+                           * 外 → 内
+                           *
+                           * この瞬間だけ撮影。
+                           */
+                          if (
+                                  inside &&
+                                  !wasInside
                           ) {
 
-                              if (!touchTriggered) {
-
-                                  touchTriggered = true;
-
-                                  takePhoto();
-                              }
-
-                              return;
+                              takePhoto();
                           }
+
+
+                          pointerInsideButton.put(
+                                  pointerId,
+                                  inside
+                          );
                       }
+
+
+                      return;
                   }
 
+
+                  /*
+                   * ====================================
+                   * 指が離れた
+                   * ====================================
+                   *
+                   * そのpointerだけ状態を消す。
+                   *
+                   * 他の指はそのまま保持する。
+                   */
                   if (
-                          action == MotionEvent.ACTION_UP ||
-                          action == MotionEvent.ACTION_CANCEL
+                          action ==
+                                  MotionEvent
+                                          .ACTION_POINTER_UP
                   ) {
 
-                      touchTriggered = false;
+                      int pointerId =
+                              event.getPointerId(
+                                      actionIndex
+                              );
+
+
+                      pointerInsideButton.delete(
+                              pointerId
+                      );
+
+
+                      return;
+                  }
+
+
+                  /*
+                   * ====================================
+                   * 全指が離れた
+                   * ====================================
+                   */
+                  if (
+                          action ==
+                                  MotionEvent
+                                          .ACTION_UP ||
+                          action ==
+                                  MotionEvent
+                                          .ACTION_CANCEL
+                  ) {
+
+                      pointerInsideButton.clear();
                   }
               }
 
+
+              # ========================================
+              # 全タッチイベント監視
+              # ========================================
               private class TouchFrameLayout
                       extends FrameLayout {
 
+
                   TouchFrameLayout(
-                          android.content.Context context
+                          Context context
                   ) {
+
                       super(context);
                   }
 
+
                   @Override
-                  public boolean dispatchTouchEvent(
+                  public boolean
+                  onInterceptTouchEvent(
                           MotionEvent event
                   ) {
 
-                      handleGlobalTouch(event);
-
-                      return super.dispatchTouchEvent(
+                      /*
+                       * 子Viewへ渡す前に
+                       * 全MotionEventを監視する。
+                       *
+                       * return falseなので、
+                       * Camera PreviewやButtonの
+                       * 通常のイベント配送を奪わない。
+                       */
+                      inspectTouchEvent(
                               event
                       );
+
+
+                      return false;
                   }
               }
 
+
+              # ========================================
+              # Permission
+              # ========================================
               @Override
               public void onRequestPermissionsResult(
                       int requestCode,
@@ -643,11 +1056,13 @@ jobs:
                           grantResults
                   );
 
+
                   if (
                           requestCode == REQ_CAMERA &&
-                                  grantResults.length > 0 &&
-                                  grantResults[0] ==
-                                          PackageManager.PERMISSION_GRANTED
+                          grantResults.length > 0 &&
+                          grantResults[0] ==
+                                  PackageManager
+                                          .PERMISSION_GRANTED
                   ) {
 
                       startCamera();
@@ -664,43 +1079,126 @@ jobs:
                   }
               }
 
+
+              # ========================================
+              # Destroy
+              # ========================================
               @Override
               protected void onDestroy() {
 
-                  if (cameraProvider != null) {
-                      cameraProvider.unbindAll();
+                  if (
+                          cameraProvider != null
+                  ) {
+
+                      cameraProvider
+                              .unbindAll();
                   }
 
-                  if (soundPool != null) {
+
+                  if (
+                          soundPool != null
+                  ) {
+
                       soundPool.release();
+
                       soundPool = null;
                   }
+
 
                   super.onDestroy();
               }
           }
           JAVA_EOF
 
+
+          # ========================================
+          # Javaコメントの # を除去
+          # ========================================
+          sed -i \
+            's/^              # ========================================/              \/\//g' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          sed -i \
+            's/^              # シャッター音/              \/\* シャッター音 \*\//g' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          sed -i \
+            's/^              # CameraX/              \/\* CameraX \*\//g' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          sed -i \
+            's/^              # 撮影/              \/\* 撮影 \*\//g' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          sed -i \
+            's/^              # 指ごとの多点タッチ判定/              \/\* 指ごとの多点タッチ判定 \*\//g' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          sed -i \
+            's/^              # 全タッチイベント監視/              \/\* 全タッチイベント監視 \*\//g' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          sed -i \
+            's/^              # Permission/              \/\* Permission \*\//g' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          sed -i \
+            's/^              # Destroy/              \/\* Destroy \*\//g' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+
+          # ========================================
+          # Java構文用の残存 # コメントを除去
+          # ========================================
+          sed -i \
+            '/^[[:space:]]*#[[:space:]]/d' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+
+          # ========================================
+          # ソース確認
+          # ========================================
           test -s \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
-          grep -q 'ACTION_POINTER_DOWN' \
+          grep -q \
+            "onInterceptTouchEvent" \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
-          grep -q 'event.getPointerCount()' \
+          grep -q \
+            "ACTION_POINTER_DOWN" \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
-          grep -q '0.60f' \
+          grep -q \
+            "ACTION_POINTER_UP" \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
-          grep -q '0.7f' \
+          grep -q \
+            "getPointerCount()" \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          grep -q \
+            "getPointerId" \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          grep -q \
+            "SparseBooleanArray" \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          grep -q \
+            "0.60f" \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          grep -q \
+            "0.7f" \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
           echo "=== MAIN ACTIVITY READY ==="
 
 
-          echo "=== GENERATE SHUTTER SOUND ==="
-
+          # ========================================
+          # シャッター音生成
+          # ========================================
           mkdir -p app/src/main/res/raw
 
           python3 - <<'PY'
@@ -711,13 +1209,21 @@ jobs:
           from pathlib import Path
 
           sr = 16000
+
           duration = 0.085
-          count = int(sr * duration)
+
+          count = int(
+              sr * duration
+          )
+
           rng = random.Random(7319)
 
           lp1 = 0.0
+
           lp2 = 0.0
+
           samples = []
+
 
           events = [
               (0.000, 0.72, 0.006),
@@ -725,89 +1231,192 @@ jobs:
               (0.064, 0.48, 0.011),
           ]
 
+
           for i in range(count):
+
               t = i / sr
+
               value = 0.0
 
+
               for onset, amp, tau in events:
+
                   u = t - onset
 
                   if u < 0.0:
                       continue
 
-                  env = math.exp(-u / tau)
-                  env *= min(1.0, u / 0.0006)
 
-                  r = rng.uniform(-1.0, 1.0)
-                  lp1 += 0.18 * (r - lp1)
+                  env = math.exp(
+                      -u / tau
+                  )
+
+                  env *= min(
+                      1.0,
+                      u / 0.0006
+                  )
+
+
+                  r = rng.uniform(
+                      -1.0,
+                      1.0
+                  )
+
+                  lp1 += 0.18 * (
+                      r - lp1
+                  )
+
                   hp = r - lp1
 
-                  r2 = rng.uniform(-1.0, 1.0)
-                  lp2 += 0.055 * (r2 - lp2)
+
+                  r2 = rng.uniform(
+                      -1.0,
+                      1.0
+                  )
+
+                  lp2 += 0.055 * (
+                      r2 - lp2
+                  )
+
 
                   texture = (
                       0.62 * hp
                       + 0.20 * lp2
                       + 0.10 * math.sin(
-                          2.0 * math.pi * 1850.0 * u
+                          2.0 *
+                          math.pi *
+                          1850.0 *
+                          u
                       )
                       + 0.05 * math.sin(
-                          2.0 * math.pi * 3100.0 * u
+                          2.0 *
+                          math.pi *
+                          3100.0 *
+                          u
                       )
                   )
 
-                  value += amp * texture * env
+
+                  value += (
+                      amp *
+                      texture *
+                      env
+                  )
+
 
               if t >= 0.017:
+
                   u = t - 0.017
 
                   value += (
-                      0.055
-                      * rng.uniform(-1.0, 1.0)
-                      * math.exp(-u / 0.018)
+                      0.055 *
+                      rng.uniform(
+                          -1.0,
+                          1.0
+                      ) *
+                      math.exp(
+                          -u / 0.018
+                      )
                   )
 
-              samples.append(value)
 
-          peak = max(abs(x) for x in samples) or 1.0
+              samples.append(
+                  value
+              )
+
+
+          peak = max(
+              abs(x)
+              for x in samples
+          ) or 1.0
+
 
           samples = [
-              max(-1.0, min(1.0, x / peak * 0.70))
+              max(
+                  -1.0,
+                  min(
+                      1.0,
+                      x / peak * 0.70
+                  )
+              )
               for x in samples
           ]
+
 
           output = Path(
               "app/src/main/res/raw/shutter.wav"
           )
 
-          with wave.open(str(output), "wb") as wav:
+
+          with wave.open(
+              str(output),
+              "wb"
+          ) as wav:
+
               wav.setnchannels(1)
+
               wav.setsampwidth(2)
+
               wav.setframerate(sr)
 
+
               for value in samples:
+
                   wav.writeframes(
                       struct.pack(
                           "<h",
-                          int(value * 32767)
+                          int(
+                              value *
+                              32767
+                          )
                       )
                   )
 
-          with wave.open(str(output), "rb") as wav:
-              assert wav.getframerate() == 16000
-              assert wav.getnchannels() == 1
-              assert wav.getsampwidth() == 2
+
+          with wave.open(
+              str(output),
+              "rb"
+          ) as wav:
+
+              if wav.getframerate() != 16000:
+                  raise RuntimeError(
+                      "Bad sample rate"
+                  )
+
+              if wav.getnchannels() != 1:
+                  raise RuntimeError(
+                      "Bad channel count"
+                  )
+
+              if wav.getsampwidth() != 2:
+                  raise RuntimeError(
+                      "Bad sample width"
+                  )
+
 
           print("SHUTTER WAV: OK")
-          print("BYTES:", output.stat().st_size)
-          print("DURATION:", duration)
+
+          print(
+              "BYTES:",
+              output.stat().st_size
+          )
+
+          print(
+              "DURATION:",
+              duration
+          )
           PY
 
 
+          # ========================================
+          # アイコン
+          # ========================================
           echo "=== INSTALL ICON ==="
 
           RES="app/src/main/res"
+
           MANIFEST="app/src/main/AndroidManifest.xml"
+
 
           rm -rf \
             "$RES/mipmap" \
@@ -820,13 +1429,20 @@ jobs:
             "$RES/mipmap-anydpi-v26" \
             "$RES/mipmap-nodpi"
 
-          mkdir -p "$RES/mipmap-nodpi"
+
+          mkdir -p \
+            "$RES/mipmap-nodpi"
+
 
           curl -fsSL \
             "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png?run=${GITHUB_RUN_ID}" \
-            -o "$RES/mipmap-nodpi/ic_launcher.png"
+            -o \
+            "$RES/mipmap-nodpi/ic_launcher.png"
 
-          test -s "$RES/mipmap-nodpi/ic_launcher.png"
+
+          test -s \
+            "$RES/mipmap-nodpi/ic_launcher.png"
+
 
           python3 - <<'PY'
           from pathlib import Path
@@ -839,7 +1455,10 @@ jobs:
           if not icon.read_bytes().startswith(
               b"\x89PNG\r\n\x1a\n"
           ):
-              raise RuntimeError("Final icon is not PNG")
+              raise RuntimeError(
+                  "Final icon is not PNG"
+              )
+
 
           manifest = Path(
               "app/src/main/AndroidManifest.xml"
@@ -847,17 +1466,20 @@ jobs:
 
           text = manifest.read_text()
 
+
           text = re.sub(
               r'\s+android:icon\s*=\s*"[^"]*"',
               '',
               text
           )
 
+
           text = re.sub(
               r'\s+android:roundIcon\s*=\s*"[^"]*"',
               '',
               text
           )
+
 
           text = text.replace(
               "<application",
@@ -866,29 +1488,44 @@ jobs:
               1
           )
 
-          manifest.write_text(text)
+
+          manifest.write_text(
+              text
+          )
+
 
           print("ICON: OK")
+
           print("MANIFEST: OK")
           PY
 
 
+          # ========================================
+          # Build
+          # ========================================
           echo "=== BUILD APK START ==="
 
           java -version
+
           gradle --version
 
           gradle clean assembleDebug
 
+
           APK="app/build/outputs/apk/debug/app-debug.apk"
 
+
           test -s "$APK"
+
 
           echo "=== APK BUILD SUCCESS ==="
 
           ls -lh "$APK"
 
 
+      # ========================================
+      # 6. APK検査
+      # ========================================
       - name: Verify APK
         working-directory: /tmp/obacamera
         shell: bash
@@ -896,22 +1533,30 @@ jobs:
           set -euo pipefail
 
           APK="app/build/outputs/apk/debug/app-debug.apk"
+
           AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
 
+
           test -s "$APK"
+
 
           echo "=== APK BADGING ==="
 
           "$AAPT2" dump badging "$APK"
+
 
           echo "=== RESOURCE CHECK ==="
 
           "$AAPT2" dump resources "$APK" | grep -E \
             "shutter|ic_launcher" | head -50 || true
 
+
           echo "=== VERIFY APK SUCCESS ==="
 
 
+      # ========================================
+      # 7. APKアップロード
+      # ========================================
       - name: Upload final APK
         uses: actions/upload-artifact@v4
         with:
@@ -920,6 +1565,9 @@ jobs:
           if-no-files-found: error
 
 
+      # ========================================
+      # 8. 完了確認
+      # ========================================
       - name: Build completed
         shell: bash
         run: |
