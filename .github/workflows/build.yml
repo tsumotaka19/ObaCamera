@@ -8,9 +8,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ========================================
-      # 1. 元プロジェクトを確実に展開
-      # ========================================
       - name: Create project
         shell: bash
         run: |
@@ -36,22 +33,17 @@ jobs:
           )
 
           if not match:
-              raise RuntimeError(
-                  "ERROR: embedded project ZIP was not found"
-              )
+              raise RuntimeError("Embedded project ZIP was not found")
 
           encoded = re.sub(r"\s+", "", match.group(1))
           data = base64.b64decode(encoded)
 
           if not data.startswith(b"PK"):
-              raise RuntimeError(
-                  "ERROR: decoded data is not a ZIP file"
-              )
+              raise RuntimeError("Decoded data is not a ZIP file")
 
           Path("/tmp/obacamera/project.zip").write_bytes(data)
 
-          print("=== PROJECT ZIP FOUND ===")
-          print(f"ZIP size: {len(data)} bytes")
+          print("PROJECT ZIP:", len(data), "bytes")
           PY
 
           test -s /tmp/obacamera/project.zip
@@ -62,12 +54,8 @@ jobs:
           test -f app/build.gradle
           test -f app/src/main/AndroidManifest.xml
 
-          echo "=== PROJECT CREATED SUCCESSFULLY ==="
-          find app/src/main -maxdepth 5 -type f | sort
+          echo "=== PROJECT CREATED ==="
 
-      # ========================================
-      # 2. 最終アイコンを取得
-      # ========================================
       - name: Install final launcher icon
         shell: bash
         run: |
@@ -77,7 +65,6 @@ jobs:
           MANIFEST="/tmp/obacamera/app/src/main/AndroidManifest.xml"
           ICON="$RES/mipmap-nodpi/ic_launcher.png"
 
-          # 既存launcher iconを完全削除
           rm -rf \
             "$RES/mipmap" \
             "$RES/mipmap-mdpi" \
@@ -91,36 +78,25 @@ jobs:
 
           mkdir -p "$RES/mipmap-nodpi"
 
-          # GitHub上の現在のicon.pngを取得
           curl -fsSL \
             "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png?run=${GITHUB_RUN_ID}" \
             -o "$ICON"
 
           test -s "$ICON"
 
-          echo "=== FINAL ICON ==="
-          ls -lh "$ICON"
-          file "$ICON"
-
-          # PNGであることを確認
           python3 - <<'PY'
           from pathlib import Path
 
           p = Path("/tmp/obacamera/app/src/main/res/mipmap-nodpi/ic_launcher.png")
           data = p.read_bytes()
 
-          png_signature = b"\x89PNG\r\n\x1a\n"
+          if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+              raise RuntimeError("Downloaded icon is not PNG")
 
-          if not data.startswith(png_signature):
-              raise RuntimeError("ERROR: downloaded icon is not a PNG")
-
-          print("PNG validation: OK")
-          print(f"Icon bytes: {len(data)}")
+          print("FINAL ICON PNG: OK")
+          print("ICON SIZE:", len(data), "bytes")
           PY
 
-          # ========================================
-          # Manifestのicon指定を完全に置換
-          # ========================================
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -128,7 +104,6 @@ jobs:
           p = Path("/tmp/obacamera/app/src/main/AndroidManifest.xml")
           s = p.read_text()
 
-          # 既存のicon指定を削除
           s = re.sub(
               r'\s+android:icon\s*=\s*"[^"]*"',
               '',
@@ -141,51 +116,32 @@ jobs:
               s
           )
 
-          # applicationタグに最終アイコンを指定
-          replacement = (
-              '<application '
-              'android:icon="@mipmap/ic_launcher" '
-              'android:roundIcon="@mipmap/ic_launcher"'
-          )
+          if '<application' not in s:
+              raise RuntimeError("application tag not found")
 
           s = s.replace(
               '<application',
-              replacement,
+              '<application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"',
               1
           )
 
           p.write_text(s)
           PY
 
-          # Manifest確認
-          grep -q \
-            'android:icon="@mipmap/ic_launcher"' \
-            "$MANIFEST"
+          grep -q 'android:icon="@mipmap/ic_launcher"' "$MANIFEST"
+          grep -q 'android:roundIcon="@mipmap/ic_launcher"' "$MANIFEST"
 
-          grep -q \
-            'android:roundIcon="@mipmap/ic_launcher"' \
-            "$MANIFEST"
-
-          echo "=== MANIFEST ==="
+          echo "=== MANIFEST ICON ==="
           grep '<application' "$MANIFEST"
-
-          echo "=== ICON FILE ==="
-          ls -lh "$ICON"
 
           echo "=== ICON INSTALL SUCCESS ==="
 
-      # ========================================
-      # 3. Java
-      # ========================================
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      # ========================================
-      # 4. Android SDK
-      # ========================================
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
@@ -198,17 +154,11 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      # ========================================
-      # 5. Gradle
-      # ========================================
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.2'
 
-      # ========================================
-      # 6. APK Build
-      # ========================================
       - name: Build APK
         working-directory: /tmp/obacamera
         shell: bash
@@ -217,61 +167,60 @@ jobs:
 
           gradle clean assembleDebug
 
-          test -s \
-            app/build/outputs/apk/debug/app-debug.apk
+          APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk"
+
+          test -s "$APK"
 
           echo "=== APK BUILD SUCCESS ==="
-          ls -lh \
-            app/build/outputs/apk/debug/app-debug.apk
+          ls -lh "$APK"
 
-      # ========================================
-      # 7. APK内部のアイコンを検査
-      # ========================================
-      - name: Verify final icon inside APK
+      - name: Verify final icon
         shell: bash
         run: |
           set -euo pipefail
 
           APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk"
-          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
 
           test -s "$APK"
 
-          echo "========================================"
-          echo "APK SIZE"
-          echo "========================================"
+          echo "================================"
+          echo "APK"
+          echo "================================"
           ls -lh "$APK"
 
-          echo "========================================"
-          echo "ICON INSIDE APK"
-          echo "========================================"
+          echo "================================"
+          echo "MANIFEST / BADGING"
+          echo "================================"
 
-          unzip -l "$APK" \
-            | grep -E \
-              'mipmap-nodpi/ic_launcher\.png'
+          "$AAPT2" dump badging "$APK" | grep -E \
+            "application:|launchable activity"
 
-          echo "========================================"
-          echo "MANIFEST ICON"
-          echo "========================================"
+          echo "================================"
+          echo "SEARCHING APK RESOURCE TABLE"
+          echo "================================"
 
-          "$AAPT" dump badging "$APK" \
-            | grep 'application-icon'
+          "$AAPT2" dump resources "$APK" > /tmp/resources.txt
 
-          echo "========================================"
-          echo "RESOURCE CHECK"
-          echo "========================================"
+          if grep -q "mipmap.*ic_launcher" /tmp/resources.txt; then
+            echo "FINAL ICON RESOURCE: FOUND"
+            grep -E "mipmap.*ic_launcher" /tmp/resources.txt | head -30
+          else
+            echo "ERROR: ic_launcher resource was not found"
+            exit 1
+          fi
 
-          "$AAPT" dump resources "$APK" \
-            | grep -E \
-              'mipmap-nodpi/ic_launcher|mipmap/ic_launcher'
+          echo "================================"
+          echo "APK FILES"
+          echo "================================"
 
-          echo "========================================"
+          unzip -l "$APK" | grep -E \
+            "ic_launcher|mipmap" | head -50 || true
+
+          echo "================================"
           echo "FINAL ICON VERIFICATION: SUCCESS"
-          echo "========================================"
+          echo "================================"
 
-      # ========================================
-      # 8. 最終APKをArtifactとして保存
-      # ========================================
       - name: Upload final APK
         uses: actions/upload-artifact@v4
         with:
