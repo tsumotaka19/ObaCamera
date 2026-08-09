@@ -63,7 +63,7 @@ jobs:
 
 
       # ========================================
-      # 2. ビルド環境を固定
+      # 2. ビルド環境
       # ========================================
       - name: Configure build environment
         shell: bash
@@ -102,30 +102,24 @@ jobs:
           EOF
 
           echo "=== BUILD ENVIRONMENT CONFIGURED ==="
-          echo "AGP: 8.6.1"
-          echo "Gradle: 8.7"
-          echo "CameraX: 1.5.3"
-          echo "Activity: 1.10.1"
-          echo "compileSdk: 35"
-          echo "JDK: 17"
 
 
       # ========================================
       # 3. CameraX + シャッター音 + MediaStore
       # ========================================
-      - name: Upgrade camera implementation
+      - name: Configure camera implementation
         shell: bash
         run: |
           set -euo pipefail
 
           RES="/tmp/obacamera/app/src/main/res"
-
           mkdir -p "$RES/raw"
 
 
-          # ----------------------------------------
-          # カメラの「カシャッ」系シャッター音を生成
-          # ----------------------------------------
+          # ========================================
+          # コンパクト版シャッター音をビルド時生成
+          # 承認済みv3の「1回目だけ」の構造を小さく再現
+          # ========================================
           python3 - <<'PY'
           import math
           import random
@@ -133,11 +127,71 @@ jobs:
           import wave
           from pathlib import Path
 
-          sample_rate = 44100
-          duration = 0.22
-          total = int(sample_rate * duration)
+          sr = 16000
+          duration = 0.085
+          n = int(sr * duration)
+          rng = random.Random(7319)
 
-          random.seed(24680)
+          lp1 = 0.0
+          lp2 = 0.0
+          samples = []
+
+          events = [
+              (0.000, 0.72, 0.006),
+              (0.030, 0.58, 0.010),
+              (0.064, 0.48, 0.011),
+          ]
+
+          for i in range(n):
+              t = i / sr
+              value = 0.0
+
+              for onset, amp, tau in events:
+                  u = t - onset
+
+                  if u < 0.0:
+                      continue
+
+                  env = math.exp(-u / tau)
+                  env *= min(1.0, u / 0.0006)
+
+                  r = rng.uniform(-1.0, 1.0)
+                  lp1 += 0.18 * (r - lp1)
+                  hp = r - lp1
+
+                  r2 = rng.uniform(-1.0, 1.0)
+                  lp2 += 0.055 * (r2 - lp2)
+
+                  texture = (
+                      0.62 * hp
+                      + 0.20 * lp2
+                      + 0.10 * math.sin(
+                          2.0 * math.pi * 1850.0 * u
+                      )
+                      + 0.05 * math.sin(
+                          2.0 * math.pi * 3100.0 * u
+                      )
+                  )
+
+                  value += amp * texture * env
+
+              if t >= 0.017:
+                  u = t - 0.017
+
+                  value += (
+                      0.055
+                      * rng.uniform(-1.0, 1.0)
+                      * math.exp(-u / 0.018)
+                  )
+
+              samples.append(value)
+
+          peak = max(abs(x) for x in samples) or 1.0
+
+          samples = [
+              max(-1.0, min(1.0, x / peak * 0.70))
+              for x in samples
+          ]
 
           output = Path(
               "/tmp/obacamera/app/src/main/res/raw/shutter.wav"
@@ -146,98 +200,9 @@ jobs:
           with wave.open(str(output), "wb") as wav:
               wav.setnchannels(1)
               wav.setsampwidth(2)
-              wav.setframerate(sample_rate)
+              wav.setframerate(sr)
 
-              for i in range(total):
-                  t = i / sample_rate
-
-                  # --------------------------------
-                  # 「カ」
-                  # 瞬間的な機械式クリック
-                  # --------------------------------
-                  click_env = math.exp(-t * 260.0)
-
-                  click = (
-                      0.70 * math.sin(
-                          2.0 * math.pi * 2200.0 * t
-                      )
-                      +
-                      0.38 * math.sin(
-                          2.0 * math.pi * 4200.0 * t
-                      )
-                      +
-                      0.18 * math.sin(
-                          2.0 * math.pi * 7200.0 * t
-                      )
-                  ) * click_env
-
-
-                  # --------------------------------
-                  # 「シャ」
-                  # 短い機械摩擦音
-                  # --------------------------------
-                  if t >= 0.006:
-                      noise_env = math.exp(
-                          -(t - 0.006) * 24.0
-                      )
-
-                      noise = (
-                          random.uniform(-1.0, 1.0)
-                          * noise_env
-                      )
-                  else:
-                      noise = 0.0
-
-
-                  # --------------------------------
-                  # ボディの低～中域
-                  # --------------------------------
-                  body_env = math.exp(
-                      -max(0.0, t - 0.004) * 19.0
-                  )
-
-                  body = (
-                      0.42 * math.sin(
-                          2.0 * math.pi * 760.0 * t
-                      )
-                      +
-                      0.24 * math.sin(
-                          2.0 * math.pi * 1180.0 * t
-                      )
-                  ) * body_env
-
-
-                  # --------------------------------
-                  # 全体を合成
-                  # --------------------------------
-                  value = (
-                      click * 0.46
-                      +
-                      noise * 0.20
-                      +
-                      body * 0.34
-                  )
-
-
-                  # 最後を自然に消す
-                  fade = min(
-                      1.0,
-                      max(
-                          0.0,
-                          (duration - t) / 0.035
-                      )
-                  )
-
-                  value *= fade
-
-
-                  # 安全な範囲へ
-                  value = max(
-                      -1.0,
-                      min(1.0, value)
-                  )
-
-
+              for value in samples:
                   wav.writeframes(
                       struct.pack(
                           "<h",
@@ -245,18 +210,48 @@ jobs:
                       )
                   )
 
-          print("SHUTTER SOUND CREATED")
-          print("FILE:", output)
-          print("SAMPLE RATE:", sample_rate)
+          print("SHUTTER SOUND GENERATED")
+          print("SAMPLE RATE:", sr)
           print("DURATION:", duration)
+          print("PEAK: 0.70")
           PY
+
 
           test -s "$RES/raw/shutter.wav"
 
 
-          # ----------------------------------------
+          python3 - <<'PY'
+          import wave
+          from pathlib import Path
+
+          p = Path(
+              "/tmp/obacamera/app/src/main/res/raw/shutter.wav"
+          )
+
+          with wave.open(str(p), "rb") as w:
+
+              if w.getframerate() != 16000:
+                  raise RuntimeError("Unexpected sample rate")
+
+              if w.getnchannels() != 1:
+                  raise RuntimeError("Unexpected channel count")
+
+              if w.getsampwidth() != 2:
+                  raise RuntimeError("Unexpected sample width")
+
+              print("SHUTTER WAV: OK")
+              print("BYTES:", p.stat().st_size)
+              print("CHANNELS:", w.getnchannels())
+              print("SAMPLE WIDTH:", w.getsampwidth())
+              print("SAMPLE RATE:", w.getframerate())
+              print("FRAMES:", w.getnframes())
+              print("DURATION:", w.getnframes() / w.getframerate())
+          PY
+
+
+          # ========================================
           # app/build.gradle
-          # ----------------------------------------
+          # ========================================
           cat > /tmp/obacamera/app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
@@ -288,9 +283,9 @@ jobs:
           EOF
 
 
-          # ----------------------------------------
+          # ========================================
           # MainActivity.java
-          # ----------------------------------------
+          # ========================================
           cat > /tmp/obacamera/app/src/main/java/com/example/obacamera/MainActivity.java <<'EOF'
           package com.example.obacamera;
 
@@ -367,618 +362,4 @@ jobs:
 
                   root.addView(
                           previewView,
-                          new FrameLayout.LayoutParams(
-                                  -1,
-                                  -1
-                          )
-                  );
-
-
-                  shutter = new Button(this);
-
-                  shutter.setText("写真を撮る");
-                  shutter.setTextSize(22);
-                  shutter.setTextColor(0xFF000000);
-                  shutter.setAllCaps(false);
-                  shutter.setBackgroundColor(0xFFFFFFFF);
-                  shutter.setEnabled(false);
-
-
-                  FrameLayout.LayoutParams shutterParams =
-                          new FrameLayout.LayoutParams(
-                                  -1,
-                                  dp(92),
-                                  Gravity.BOTTOM
-                          );
-
-                  shutterParams.setMargins(
-                          dp(24),
-                          dp(24),
-                          dp(24),
-                          dp(24)
-                  );
-
-
-                  root.addView(
-                          shutter,
-                          shutterParams
-                  );
-
-
-                  shutter.setOnClickListener(
-                          v -> takePhoto()
-                  );
-
-
-                  setContentView(root);
-
-
-                  initializeShutterSound();
-
-
-                  if (
-                          checkSelfPermission(
-                                  Manifest.permission.CAMERA
-                          ) != PackageManager.PERMISSION_GRANTED
-                  ) {
-
-                      requestPermissions(
-                              new String[]{
-                                      Manifest.permission.CAMERA
-                              },
-                              REQ_CAMERA
-                      );
-
-                  } else {
-
-                      startCamera();
-                  }
-              }
-
-
-              private void initializeShutterSound() {
-
-                  /*
-                   * SoundPoolのデフォルトAudioAttributesは
-                   * USAGE_MEDIA。
-                   *
-                   * USAGE_ASSISTANCE_SONIFICATIONを明示すると
-                   * 端末によってはシステム音量側へルーティングされ、
-                   * 今回のような短い効果音が聞こえなくなる可能性があるため、
-                   * 明示指定せずMedia系として再生する。
-                   */
-
-                  soundPool =
-                          new SoundPool.Builder()
-                                  .setMaxStreams(1)
-                                  .build();
-
-
-                  soundPool.setOnLoadCompleteListener(
-                          (pool, sampleId, status) -> {
-
-                              if (
-                                      status == 0 &&
-                                      sampleId == shutterSoundId
-                              ) {
-
-                                  soundReady = true;
-
-                                  updateShutterState();
-                              }
-                          }
-                  );
-
-
-                  shutterSoundId =
-                          soundPool.load(
-                                  this,
-                                  R.raw.shutter,
-                                  1
-                          );
-              }
-
-
-              private void updateShutterState() {
-
-                  shutter.setEnabled(
-                          cameraReady && soundReady
-                  );
-              }
-
-
-              private int dp(int value) {
-
-                  return (int) (
-                          value *
-                          getResources()
-                                  .getDisplayMetrics()
-                                  .density
-                          + 0.5f
-                  );
-              }
-
-
-              private void startCamera() {
-
-                  cameraReady = false;
-
-                  updateShutterState();
-
-
-                  ListenableFuture<ProcessCameraProvider> future =
-                          ProcessCameraProvider.getInstance(this);
-
-
-                  future.addListener(
-                          () -> {
-
-                              try {
-
-                                  cameraProvider = future.get();
-
-                                  cameraProvider.unbindAll();
-
-
-                                  Preview preview =
-                                          new Preview.Builder()
-                                                  .build();
-
-
-                                  preview.setSurfaceProvider(
-                                          previewView
-                                                  .getSurfaceProvider()
-                                  );
-
-
-                                  imageCapture =
-                                          new ImageCapture.Builder()
-                                                  .setCaptureMode(
-                                                          ImageCapture
-                                                                  .CAPTURE_MODE_MINIMIZE_LATENCY
-                                                  )
-                                                  .setTargetRotation(
-                                                          previewView
-                                                                  .getDisplay()
-                                                                  .getRotation()
-                                                  )
-                                                  .build();
-
-
-                                  CameraSelector selector =
-                                          CameraSelector
-                                                  .DEFAULT_BACK_CAMERA;
-
-
-                                  cameraProvider.bindToLifecycle(
-                                          this,
-                                          selector,
-                                          preview,
-                                          imageCapture
-                                  );
-
-
-                                  cameraReady = true;
-
-                                  updateShutterState();
-
-
-                              } catch (Exception e) {
-
-                                  cameraReady = false;
-
-                                  updateShutterState();
-
-
-                                  Toast.makeText(
-                                          this,
-                                          "カメラを開始できませんでした",
-                                          Toast.LENGTH_SHORT
-                                  ).show();
-                              }
-
-                          },
-                          ContextCompat.getMainExecutor(this)
-                  );
-              }
-
-
-              private void takePhoto() {
-
-                  if (
-                          imageCapture == null ||
-                          !cameraReady ||
-                          !soundReady
-                  ) {
-                      return;
-                  }
-
-
-                  shutter.setEnabled(false);
-
-
-                  long now =
-                          System.currentTimeMillis();
-
-
-                  ContentValues values =
-                          new ContentValues();
-
-
-                  values.put(
-                          MediaStore.Images.Media.DISPLAY_NAME,
-                          "IMG_" + now + ".jpg"
-                  );
-
-
-                  values.put(
-                          MediaStore.Images.Media.MIME_TYPE,
-                          "image/jpeg"
-                  );
-
-
-                  if (
-                          Build.VERSION.SDK_INT >=
-                                  Build.VERSION_CODES.Q
-                  ) {
-
-                      values.put(
-                              MediaStore.Images.Media.RELATIVE_PATH,
-                              Environment.DIRECTORY_DCIM +
-                                      "/Camera"
-                      );
-
-
-                      values.put(
-                              MediaStore.Images.Media.IS_PENDING,
-                              1
-                      );
-                  }
-
-
-                  ImageCapture.OutputFileOptions outputOptions =
-                          new ImageCapture.OutputFileOptions.Builder(
-                                  getContentResolver(),
-                                  MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                                  values
-                          ).build();
-
-
-                  // --------------------------------
-                  // カシャッ
-                  // 左右とも50%
-                  // --------------------------------
-                  soundPool.play(
-                          shutterSoundId,
-                          0.5f,
-                          0.5f,
-                          1,
-                          0,
-                          1.0f
-                  );
-
-
-                  imageCapture.takePicture(
-                          outputOptions,
-                          ContextCompat.getMainExecutor(this),
-
-                          new ImageCapture.OnImageSavedCallback() {
-
-                              @Override
-                              public void onImageSaved(
-                                      @NonNull
-                                      ImageCapture.OutputFileResults result
-                              ) {
-
-                                  if (
-                                          Build.VERSION.SDK_INT >=
-                                                  Build.VERSION_CODES.Q &&
-                                          result.getSavedUri() != null
-                                  ) {
-
-                                      ContentValues publish =
-                                              new ContentValues();
-
-                                      publish.put(
-                                              MediaStore.Images.Media
-                                                      .IS_PENDING,
-                                              0
-                                      );
-
-                                      getContentResolver().update(
-                                              result.getSavedUri(),
-                                              publish,
-                                              null,
-                                              null
-                                      );
-                                  }
-
-
-                                  updateShutterState();
-
-
-                                  Toast.makeText(
-                                          MainActivity.this,
-                                          "写真を保存しました",
-                                          Toast.LENGTH_SHORT
-                                  ).show();
-                              }
-
-
-                              @Override
-                              public void onError(
-                                      @NonNull
-                                      ImageCaptureException exception
-                              ) {
-
-                                  updateShutterState();
-
-
-                                  Toast.makeText(
-                                          MainActivity.this,
-                                          "撮影に失敗しました",
-                                          Toast.LENGTH_SHORT
-                                  ).show();
-                              }
-                          }
-                  );
-              }
-
-
-              @Override
-              public void onRequestPermissionsResult(
-                      int requestCode,
-                      @NonNull String[] permissions,
-                      @NonNull int[] grantResults
-              ) {
-
-                  super.onRequestPermissionsResult(
-                          requestCode,
-                          permissions,
-                          grantResults
-                  );
-
-
-                  if (
-                          requestCode == REQ_CAMERA &&
-                          grantResults.length > 0 &&
-                          grantResults[0] ==
-                                  PackageManager.PERMISSION_GRANTED
-                  ) {
-
-                      startCamera();
-
-                  } else if (
-                          requestCode == REQ_CAMERA
-                  ) {
-
-                      Toast.makeText(
-                              this,
-                              "カメラの権限が必要です",
-                              Toast.LENGTH_SHORT
-                      ).show();
-                  }
-              }
-
-
-              @Override
-              protected void onDestroy() {
-
-                  if (cameraProvider != null) {
-                      cameraProvider.unbindAll();
-                  }
-
-
-                  if (soundPool != null) {
-                      soundPool.release();
-                      soundPool = null;
-                  }
-
-
-                  super.onDestroy();
-              }
-          }
-          EOF
-
-
-          echo "=== CAMERA + SHUTTER SOUND READY ==="
-
-
-      # ========================================
-      # 4. 最終アイコン
-      # ========================================
-      - name: Install final launcher icon
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          RES="/tmp/obacamera/app/src/main/res"
-          MANIFEST="/tmp/obacamera/app/src/main/AndroidManifest.xml"
-
-
-          rm -rf \
-            "$RES/mipmap" \
-            "$RES/mipmap-mdpi" \
-            "$RES/mipmap-hdpi" \
-            "$RES/mipmap-xhdpi" \
-            "$RES/mipmap-xxhdpi" \
-            "$RES/mipmap-xxxhdpi" \
-            "$RES/mipmap-anydpi" \
-            "$RES/mipmap-anydpi-v26" \
-            "$RES/mipmap-nodpi"
-
-
-          mkdir -p "$RES/mipmap-nodpi"
-
-
-          curl -fsSL \
-            "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png?run=${GITHUB_RUN_ID}" \
-            -o "$RES/mipmap-nodpi/ic_launcher.png"
-
-
-          test -s \
-            "$RES/mipmap-nodpi/ic_launcher.png"
-
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path(
-              "/tmp/obacamera/app/src/main/res/mipmap-nodpi/ic_launcher.png"
-          )
-
-          if not p.read_bytes().startswith(
-              b"\x89PNG\r\n\x1a\n"
-          ):
-              raise RuntimeError("Final icon is not PNG")
-
-          print("FINAL ICON: OK")
-          PY
-
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path(
-              "/tmp/obacamera/app/src/main/AndroidManifest.xml"
-          )
-
-          s = p.read_text()
-
-          s = re.sub(
-              r'\s+android:icon\s*=\s*"[^"]*"',
-              '',
-              s
-          )
-
-          s = re.sub(
-              r'\s+android:roundIcon\s*=\s*"[^"]*"',
-              '',
-              s
-          )
-
-          s = s.replace(
-              '<application',
-              '<application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"',
-              1
-          )
-
-          p.write_text(s)
-          PY
-
-
-          grep -q \
-            'android:icon="@mipmap/ic_launcher"' \
-            "$MANIFEST"
-
-
-          echo "=== ICON INSTALL SUCCESS ==="
-
-
-      # ========================================
-      # 5. Java / Android SDK
-      # ========================================
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-
-
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          sdkmanager \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
-
-
-      # ========================================
-      # 6. Gradle
-      # ========================================
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
-
-
-      # ========================================
-      # 7. APK Build
-      # ========================================
-      - name: Build APK
-        working-directory: /tmp/obacamera
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "=== BUILD ENVIRONMENT ==="
-
-          java -version
-
-          gradle --version
-
-          echo "=== BUILD APK ==="
-
-          gradle clean assembleDebug
-
-
-          APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk"
-
-
-          test -s "$APK"
-
-
-          echo "=== APK BUILD SUCCESS ==="
-
-          ls -lh "$APK"
-
-
-      # ========================================
-      # 8. APK検査
-      # ========================================
-      - name: Verify APK
-        working-directory: /tmp/obacamera
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk"
-
-          AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
-
-
-          echo "=== VERIFY APK ==="
-
-          test -f "$APK"
-          test -s "$APK"
-
-
-          echo "=== APK SIZE ==="
-
-          ls -lh "$APK"
-
-
-          echo "=== AAPT2 BADGING ==="
-
-          "$AAPT2" dump badging "$APK"
-
-
-          echo "=== APK VERIFICATION SUCCESS ==="
-
-
-      # ========================================
-      # 9. APK Artifact
-      # ========================================
-      - name: Upload final APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ObaCamera-FINAL-ICON-CAMERAX
-          path: /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+                         
