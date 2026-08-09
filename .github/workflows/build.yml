@@ -63,9 +63,9 @@ jobs:
 
 
       # ========================================
-      # 2. Gradle / AGPを完全固定
+      # 2. ビルド環境を固定
       # ========================================
-      - name: Configure Gradle and AGP
+      - name: Configure build environment
         shell: bash
         run: |
           set -euo pipefail
@@ -82,7 +82,9 @@ jobs:
           }
 
           dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositoriesMode.set(
+                  org.gradle.api.initialization.resolve.RepositoriesMode.FAIL_ON_PROJECT_REPOS
+              )
               repositories {
                   google()
                   mavenCentral()
@@ -99,9 +101,11 @@ jobs:
           }
           EOF
 
-          echo "=== GRADLE / AGP CONFIGURED ==="
-          echo "AGP: 8.6.1"
+          echo "=== BUILD ENVIRONMENT CONFIGURED ==="
+          echo "Android Gradle Plugin: 8.6.1"
           echo "Gradle: 8.7"
+          echo "CameraX: 1.5.3"
+          echo "compileSdk: 35"
           echo "JDK: 17"
 
 
@@ -133,7 +137,7 @@ jobs:
           }
 
           dependencies {
-              def camerax_version = "1.6.1"
+              def camerax_version = "1.5.3"
 
               implementation "androidx.camera:camera-core:${camerax_version}"
               implementation "androidx.camera:camera-camera2:${camerax_version}"
@@ -597,7 +601,7 @@ jobs:
           EOF
 
 
-          echo "=== CAMERAX IMPLEMENTATION READY ==="
+          echo "=== CAMERAX 1.5.3 IMPLEMENTATION READY ==="
 
 
       # ========================================
@@ -744,7 +748,9 @@ jobs:
           set -euo pipefail
 
           echo "=== BUILD ENVIRONMENT ==="
+
           java -version
+
           gradle --version
 
           echo "=== BUILD APK ==="
