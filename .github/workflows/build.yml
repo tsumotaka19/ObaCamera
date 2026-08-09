@@ -150,36 +150,553 @@ jobs:
           }
           APP_EOF
 
+
           echo "=== WRITE MAIN ACTIVITY ==="
 
-          python3 - <<'PY'
-          import base64
-          import gzip
-          from pathlib import Path
+          cat > app/src/main/java/com/example/obacamera/MainActivity.java <<'JAVA_EOF'
+          package com.example.obacamera;
 
-          data = gzip.decompress(
-              base64.b64decode(
-                  "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"
-              )
-          )
+          import android.Manifest;
+          import android.content.ContentValues;
+          import android.content.pm.PackageManager;
+          import android.media.SoundPool;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Environment;
+          import android.provider.MediaStore;
+          import android.view.Gravity;
+          import android.view.MotionEvent;
+          import android.view.WindowManager;
+          import android.widget.Button;
+          import android.widget.FrameLayout;
+          import android.widget.Toast;
 
-          path = Path(
-              "app/src/main/java/com/example/obacamera/MainActivity.java"
-          )
+          import androidx.activity.ComponentActivity;
+          import androidx.annotation.NonNull;
+          import androidx.camera.core.CameraSelector;
+          import androidx.camera.core.ImageCapture;
+          import androidx.camera.core.ImageCaptureException;
+          import androidx.camera.core.Preview;
+          import androidx.camera.lifecycle.ProcessCameraProvider;
+          import androidx.camera.view.PreviewView;
+          import androidx.core.content.ContextCompat;
 
-          path.write_bytes(data)
+          import com.google.common.util.concurrent.ListenableFuture;
 
-          if b"0.60f" not in data:
-              raise RuntimeError("60% shutter button setting missing")
+          public class MainActivity extends ComponentActivity {
 
-          if b"0.7f" not in data:
-              raise RuntimeError("Shutter volume setting missing")
+              private static final int REQ_CAMERA = 10;
 
-          if b"R.raw.shutter" not in data:
-              raise RuntimeError("Shutter sound resource missing")
+              private PreviewView previewView;
+              private Button shutter;
 
-          print("MAIN ACTIVITY: OK")
-          PY
+              private ImageCapture imageCapture;
+              private ProcessCameraProvider cameraProvider;
+
+              private SoundPool soundPool;
+              private int shutterSoundId;
+              private boolean soundReady;
+              private boolean cameraReady;
+
+              private boolean touchTriggered;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  getWindow().setStatusBarColor(0xFF000000);
+                  getWindow().setNavigationBarColor(0xFF000000);
+
+                  getWindow().addFlags(
+                          WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                  );
+
+                  TouchFrameLayout root =
+                          new TouchFrameLayout(this);
+
+                  root.setBackgroundColor(0xFF000000);
+
+                  previewView = new PreviewView(this);
+
+                  previewView.setImplementationMode(
+                          PreviewView.ImplementationMode.PERFORMANCE
+                  );
+
+                  previewView.setScaleType(
+                          PreviewView.ScaleType.FILL_CENTER
+                  );
+
+                  root.addView(
+                          previewView,
+                          new FrameLayout.LayoutParams(
+                                  -1,
+                                  -1
+                          )
+                  );
+
+                  shutter = new Button(this);
+
+                  shutter.setText("写真を撮る");
+                  shutter.setTextSize(22);
+                  shutter.setTextColor(0xFF000000);
+                  shutter.setAllCaps(false);
+                  shutter.setBackgroundColor(0xFFFFFFFF);
+                  shutter.setEnabled(false);
+
+                  FrameLayout.LayoutParams shutterParams =
+                          new FrameLayout.LayoutParams(
+                                  (int) (
+                                          getResources()
+                                                  .getDisplayMetrics()
+                                                  .widthPixels
+                                                  * 0.60f
+                                  ),
+                                  dp(92),
+                                  Gravity.BOTTOM |
+                                          Gravity.CENTER_HORIZONTAL
+                          );
+
+                  shutterParams.setMargins(
+                          0,
+                          dp(24),
+                          0,
+                          dp(24)
+                  );
+
+                  root.addView(
+                          shutter,
+                          shutterParams
+                  );
+
+                  setContentView(root);
+
+                  initializeShutterSound();
+
+                  if (
+                          checkSelfPermission(
+                                  Manifest.permission.CAMERA
+                          ) != PackageManager.PERMISSION_GRANTED
+                  ) {
+                      requestPermissions(
+                              new String[]{
+                                      Manifest.permission.CAMERA
+                              },
+                              REQ_CAMERA
+                      );
+                  } else {
+                      startCamera();
+                  }
+              }
+
+              private void initializeShutterSound() {
+
+                  soundPool =
+                          new SoundPool.Builder()
+                                  .setMaxStreams(1)
+                                  .build();
+
+                  soundPool.setOnLoadCompleteListener(
+                          (pool, sampleId, status) -> {
+
+                              if (
+                                      status == 0 &&
+                                      sampleId == shutterSoundId
+                              ) {
+                                  soundReady = true;
+                                  updateShutterState();
+                              }
+                          }
+                  );
+
+                  shutterSoundId =
+                          soundPool.load(
+                                  this,
+                                  R.raw.shutter,
+                                  1
+                          );
+              }
+
+              private void updateShutterState() {
+
+                  shutter.setEnabled(
+                          cameraReady &&
+                                  soundReady
+                  );
+              }
+
+              private int dp(int value) {
+
+                  return (int) (
+                          value *
+                                  getResources()
+                                          .getDisplayMetrics()
+                                          .density
+                                  + 0.5f
+                  );
+              }
+
+              private void startCamera() {
+
+                  cameraReady = false;
+
+                  updateShutterState();
+
+                  ListenableFuture<ProcessCameraProvider> future =
+                          ProcessCameraProvider.getInstance(
+                                  this
+                          );
+
+                  future.addListener(
+                          () -> {
+
+                              try {
+
+                                  cameraProvider =
+                                          future.get();
+
+                                  cameraProvider.unbindAll();
+
+                                  Preview preview =
+                                          new Preview.Builder()
+                                                  .build();
+
+                                  preview.setSurfaceProvider(
+                                          previewView
+                                                  .getSurfaceProvider()
+                                  );
+
+                                  imageCapture =
+                                          new ImageCapture.Builder()
+                                                  .setCaptureMode(
+                                                          ImageCapture
+                                                                  .CAPTURE_MODE_MINIMIZE_LATENCY
+                                                  )
+                                                  .setTargetRotation(
+                                                          previewView
+                                                                  .getDisplay()
+                                                                  .getRotation()
+                                                  )
+                                                  .build();
+
+                                  CameraSelector selector =
+                                          CameraSelector
+                                                  .DEFAULT_BACK_CAMERA;
+
+                                  cameraProvider.bindToLifecycle(
+                                          this,
+                                          selector,
+                                          preview,
+                                          imageCapture
+                                  );
+
+                                  cameraReady = true;
+
+                                  updateShutterState();
+
+                              } catch (Exception e) {
+
+                                  cameraReady = false;
+
+                                  updateShutterState();
+
+                                  Toast.makeText(
+                                          this,
+                                          "カメラを開始できませんでした",
+                                          Toast.LENGTH_SHORT
+                                  ).show();
+                              }
+
+                          },
+                          ContextCompat.getMainExecutor(
+                                  this
+                          )
+                  );
+              }
+
+              private void takePhoto() {
+
+                  if (
+                          imageCapture == null ||
+                                  !cameraReady ||
+                                  !soundReady
+                  ) {
+                      return;
+                  }
+
+                  shutter.setEnabled(false);
+
+                  long now =
+                          System.currentTimeMillis();
+
+                  ContentValues values =
+                          new ContentValues();
+
+                  values.put(
+                          MediaStore.Images.Media.DISPLAY_NAME,
+                          "IMG_" + now + ".jpg"
+                  );
+
+                  values.put(
+                          MediaStore.Images.Media.MIME_TYPE,
+                          "image/jpeg"
+                  );
+
+                  if (
+                          Build.VERSION.SDK_INT >=
+                                  Build.VERSION_CODES.Q
+                  ) {
+
+                      values.put(
+                              MediaStore.Images.Media.RELATIVE_PATH,
+                              Environment.DIRECTORY_DCIM +
+                                      "/Camera"
+                      );
+
+                      values.put(
+                              MediaStore.Images.Media.IS_PENDING,
+                              1
+                      );
+                  }
+
+                  ImageCapture.OutputFileOptions outputOptions =
+                          new ImageCapture.OutputFileOptions.Builder(
+                                  getContentResolver(),
+                                  MediaStore.Images.Media
+                                          .EXTERNAL_CONTENT_URI,
+                                  values
+                          ).build();
+
+                  soundPool.play(
+                          shutterSoundId,
+                          0.7f,
+                          0.7f,
+                          1,
+                          0,
+                          1.0f
+                  );
+
+                  imageCapture.takePicture(
+                          outputOptions,
+                          ContextCompat.getMainExecutor(
+                                  this
+                          ),
+                          new ImageCapture.OnImageSavedCallback() {
+
+                              @Override
+                              public void onImageSaved(
+                                      @NonNull
+                                      ImageCapture.OutputFileResults result
+                              ) {
+
+                                  if (
+                                          Build.VERSION.SDK_INT >=
+                                                  Build.VERSION_CODES.Q &&
+                                          result.getSavedUri() != null
+                                  ) {
+
+                                      ContentValues publish =
+                                              new ContentValues();
+
+                                      publish.put(
+                                              MediaStore.Images.Media
+                                                      .IS_PENDING,
+                                              0
+                                      );
+
+                                      getContentResolver().update(
+                                              result.getSavedUri(),
+                                              publish,
+                                              null,
+                                              null
+                                      );
+                                  }
+
+                                  touchTriggered = false;
+
+                                  updateShutterState();
+
+                                  Toast.makeText(
+                                          MainActivity.this,
+                                          "写真を保存しました",
+                                          Toast.LENGTH_SHORT
+                                  ).show();
+                              }
+
+                              @Override
+                              public void onError(
+                                      @NonNull
+                                      ImageCaptureException exception
+                              ) {
+
+                                  touchTriggered = false;
+
+                                  updateShutterState();
+
+                                  Toast.makeText(
+                                          MainActivity.this,
+                                          "撮影に失敗しました",
+                                          Toast.LENGTH_SHORT
+                                  ).show();
+                              }
+                          }
+                  );
+              }
+
+              private void handleGlobalTouch(
+                      MotionEvent event
+              ) {
+
+                  if (shutter == null) {
+                      return;
+                  }
+
+                  if (!shutter.isEnabled()) {
+                      return;
+                  }
+
+                  int action =
+                          event.getActionMasked();
+
+                  if (
+                          action == MotionEvent.ACTION_DOWN ||
+                          action == MotionEvent.ACTION_POINTER_DOWN ||
+                          action == MotionEvent.ACTION_MOVE
+                  ) {
+
+                      android.graphics.Rect rect =
+                              new android.graphics.Rect();
+
+                      shutter.getHitRect(rect);
+
+                      for (
+                              int i = 0;
+                              i < event.getPointerCount();
+                              i++
+                      ) {
+
+                          float x =
+                                  event.getX(i);
+
+                          float y =
+                                  event.getY(i);
+
+                          if (
+                                  rect.contains(
+                                          (int) x,
+                                          (int) y
+                                  )
+                          ) {
+
+                              if (!touchTriggered) {
+
+                                  touchTriggered = true;
+
+                                  takePhoto();
+                              }
+
+                              return;
+                          }
+                      }
+                  }
+
+                  if (
+                          action == MotionEvent.ACTION_UP ||
+                          action == MotionEvent.ACTION_CANCEL
+                  ) {
+
+                      touchTriggered = false;
+                  }
+              }
+
+              private class TouchFrameLayout
+                      extends FrameLayout {
+
+                  TouchFrameLayout(
+                          android.content.Context context
+                  ) {
+                      super(context);
+                  }
+
+                  @Override
+                  public boolean dispatchTouchEvent(
+                          MotionEvent event
+                  ) {
+
+                      handleGlobalTouch(event);
+
+                      return super.dispatchTouchEvent(
+                              event
+                      );
+                  }
+              }
+
+              @Override
+              public void onRequestPermissionsResult(
+                      int requestCode,
+                      @NonNull String[] permissions,
+                      @NonNull int[] grantResults
+              ) {
+
+                  super.onRequestPermissionsResult(
+                          requestCode,
+                          permissions,
+                          grantResults
+                  );
+
+                  if (
+                          requestCode == REQ_CAMERA &&
+                                  grantResults.length > 0 &&
+                                  grantResults[0] ==
+                                          PackageManager.PERMISSION_GRANTED
+                  ) {
+
+                      startCamera();
+
+                  } else if (
+                          requestCode == REQ_CAMERA
+                  ) {
+
+                      Toast.makeText(
+                              this,
+                              "カメラの権限が必要です",
+                              Toast.LENGTH_SHORT
+                      ).show();
+                  }
+              }
+
+              @Override
+              protected void onDestroy() {
+
+                  if (cameraProvider != null) {
+                      cameraProvider.unbindAll();
+                  }
+
+                  if (soundPool != null) {
+                      soundPool.release();
+                      soundPool = null;
+                  }
+
+                  super.onDestroy();
+              }
+          }
+          JAVA_EOF
+
+          test -s \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          grep -q 'ACTION_POINTER_DOWN' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          grep -q 'event.getPointerCount()' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          grep -q '0.60f' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          grep -q '0.7f' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+          echo "=== MAIN ACTIVITY READY ==="
 
 
           echo "=== GENERATE SHUTTER SOUND ==="
@@ -259,7 +776,9 @@ jobs:
               for x in samples
           ]
 
-          output = Path("app/src/main/res/raw/shutter.wav")
+          output = Path(
+              "app/src/main/res/raw/shutter.wav"
+          )
 
           with wave.open(str(output), "wb") as wav:
               wav.setnchannels(1)
@@ -268,18 +787,16 @@ jobs:
 
               for value in samples:
                   wav.writeframes(
-                      struct.pack("<h", int(value * 32767))
+                      struct.pack(
+                          "<h",
+                          int(value * 32767)
+                      )
                   )
 
           with wave.open(str(output), "rb") as wav:
-              if wav.getframerate() != 16000:
-                  raise RuntimeError("Bad sample rate")
-
-              if wav.getnchannels() != 1:
-                  raise RuntimeError("Bad channel count")
-
-              if wav.getsampwidth() != 2:
-                  raise RuntimeError("Bad sample width")
+              assert wav.getframerate() == 16000
+              assert wav.getnchannels() == 1
+              assert wav.getsampwidth() == 2
 
           print("SHUTTER WAV: OK")
           print("BYTES:", output.stat().st_size)
