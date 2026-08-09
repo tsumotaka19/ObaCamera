@@ -123,61 +123,20 @@ jobs:
           mkdir -p "$RES/raw"
 
           # ----------------------------------------
-          # カシャ系シャッター音をWAVとして生成
-          # 44.1kHz / mono / 約0.18秒
+          # カシャ系シャッター音をWAV生成
           # ----------------------------------------
           python3 - <<'PY'
           import math
           import random
-          import wave
           import struct
+          import wave
           from pathlib import Path
 
           sample_rate = 44100
           duration = 0.18
           total = int(sample_rate * duration)
 
-          samples = []
-
           random.seed(12345)
-
-          for i in range(total):
-              t = i / sample_rate
-
-              # 最初の鋭い「カ」
-              click_env = math.exp(-t * 180.0)
-
-              click = (
-                  0.70 * math.sin(2.0 * math.pi * 3200.0 * t) +
-                  0.35 * math.sin(2.0 * math.pi * 6100.0 * t) +
-                  0.20 * math.sin(2.0 * math.pi * 9200.0 * t)
-              ) * click_env
-
-              # 続く「シャ」の短い機械的な響き
-              noise_env = math.exp(-max(0.0, t - 0.008) * 32.0)
-
-              noise = (
-                  random.uniform(-1.0, 1.0)
-                  * noise_env
-                  * (1.0 if t >= 0.008 else 0.0)
-              )
-
-              body_env = math.exp(-max(0.0, t - 0.006) * 22.0)
-
-              body = (
-                  0.28 * math.sin(2.0 * math.pi * 850.0 * t) +
-                  0.16 * math.sin(2.0 * math.pi * 1250.0 * t)
-              ) * body_env
-
-              value = click * 0.55 + noise * 0.18 + body * 0.35
-
-              # わずかにフェードアウト
-              fade = min(1.0, max(0.0, (duration - t) / 0.025))
-              value *= fade
-
-              value = max(-1.0, min(1.0, value))
-
-              samples.append(int(value * 32767))
 
           output = Path(
               "/tmp/obacamera/app/src/main/res/raw/shutter.wav"
@@ -188,13 +147,60 @@ jobs:
               wav.setsampwidth(2)
               wav.setframerate(sample_rate)
 
-              for sample in samples:
-                  wav.writeframes(
-                      struct.pack("<h", sample)
+              for i in range(total):
+                  t = i / sample_rate
+
+                  click_env = math.exp(-t * 180.0)
+
+                  click = (
+                      0.70 * math.sin(2.0 * math.pi * 3200.0 * t)
+                      + 0.35 * math.sin(2.0 * math.pi * 6100.0 * t)
+                      + 0.20 * math.sin(2.0 * math.pi * 9200.0 * t)
+                  ) * click_env
+
+                  noise_env = math.exp(
+                      -max(0.0, t - 0.008) * 32.0
                   )
 
-          print("SHUTTER SOUND:", output)
-          print("SAMPLES:", len(samples))
+                  noise = (
+                      random.uniform(-1.0, 1.0)
+                      * noise_env
+                      * (1.0 if t >= 0.008 else 0.0)
+                  )
+
+                  body_env = math.exp(
+                      -max(0.0, t - 0.006) * 22.0
+                  )
+
+                  body = (
+                      0.28 * math.sin(2.0 * math.pi * 850.0 * t)
+                      + 0.16 * math.sin(2.0 * math.pi * 1250.0 * t)
+                  ) * body_env
+
+                  value = (
+                      click * 0.55
+                      + noise * 0.18
+                      + body * 0.35
+                  )
+
+                  fade = min(
+                      1.0,
+                      max(0.0, (duration - t) / 0.025)
+                  )
+
+                  value *= fade
+
+                  value = max(-1.0, min(1.0, value))
+
+                  wav.writeframes(
+                      struct.pack(
+                          "<h",
+                          int(value * 32767)
+                      )
+                  )
+
+          print("SHUTTER SOUND CREATED")
+          print(output)
           PY
 
           test -s "$RES/raw/shutter.wav"
@@ -280,6 +286,7 @@ jobs:
 
               private SoundPool soundPool;
               private int shutterSoundId = 0;
+
               private boolean soundReady = false;
               private boolean cameraReady = false;
 
@@ -405,10 +412,13 @@ jobs:
                   soundPool.setOnLoadCompleteListener(
                           (pool, sampleId, status) -> {
 
-                              if (status == 0 &&
-                                      sampleId == shutterSoundId) {
+                              if (
+                                      status == 0 &&
+                                      sampleId == shutterSoundId
+                              ) {
 
                                   soundReady = true;
+
                                   updateShutterState();
                               }
                           }
@@ -447,6 +457,7 @@ jobs:
               private void startCamera() {
 
                   cameraReady = false;
+
                   updateShutterState();
 
 
@@ -503,12 +514,14 @@ jobs:
 
 
                                   cameraReady = true;
+
                                   updateShutterState();
 
 
                               } catch (Exception e) {
 
                                   cameraReady = false;
+
                                   updateShutterState();
 
 
@@ -586,8 +599,8 @@ jobs:
                           ).build();
 
 
-                  // 「カシャ」系シャッター音
-                  // 左右とも0.5 = 約50%
+                  // カシャ系シャッター音
+                  // 左右とも50%
                   soundPool.play(
                           shutterSoundId,
                           0.5f,
@@ -730,7 +743,6 @@ jobs:
       - name: Install final launcher icon
         shell: bash
         run: |
-
           set -euo pipefail
 
           RES="/tmp/obacamera/app/src/main/res"
@@ -771,9 +783,7 @@ jobs:
           if not p.read_bytes().startswith(
               b"\x89PNG\r\n\x1a\n"
           ):
-              raise RuntimeError(
-                  "Final icon is not PNG"
-              )
+              raise RuntimeError("Final icon is not PNG")
 
           print("FINAL ICON: OK")
           PY
@@ -836,7 +846,6 @@ jobs:
       - name: Install Android SDK packages
         shell: bash
         run: |
-
           set -euo pipefail
 
           sdkmanager \
@@ -860,7 +869,6 @@ jobs:
         working-directory: /tmp/obacamera
         shell: bash
         run: |
-
           set -euo pipefail
 
           echo "=== BUILD ENVIRONMENT ==="
@@ -889,9 +897,41 @@ jobs:
       # 8. APK検査
       # ========================================
       - name: Verify APK
+        working-directory: /tmp/obacamera
         shell: bash
         run: |
-
           set -euo pipefail
 
-          APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug
+          APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk"
+
+          AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+
+
+          echo "=== VERIFY APK ==="
+
+          test -f "$APK"
+          test -s "$APK"
+
+
+          echo "=== APK SIZE ==="
+
+          ls -lh "$APK"
+
+
+          echo "=== AAPT2 BADGING ==="
+
+          "$AAPT2" dump badging "$APK"
+
+
+          echo "=== APK VERIFICATION SUCCESS ==="
+
+
+      # ========================================
+      # 9. APK Artifact
+      # ========================================
+      - name: Upload final APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ObaCamera-FINAL-ICON-CAMERAX
+          path: /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
