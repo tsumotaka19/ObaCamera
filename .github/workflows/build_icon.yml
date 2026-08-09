@@ -11,22 +11,61 @@ jobs:
       - name: Get project from existing workflow
         run: |
           mkdir -p /tmp/obacamera
+
           curl -fsSL "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/.github/workflows/build.yml" \
             -o /tmp/build.yml
-          sed -n "s/.*echo '\\([^']*\\)' | base64 -d.*/\\1/p" /tmp/build.yml \
+
+          sed -n "s/.*echo '\([^']*\)' | base64 -d.*/\1/p" /tmp/build.yml \
             | base64 -d > /tmp/obacamera/project.zip
+
           unzip -q /tmp/obacamera/project.zip -d /tmp/obacamera
 
       - name: Install icon
         run: |
           mkdir -p /tmp/obacamera/app/src/main/res/drawable
-          curl -fsSL "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png" \
+
+          curl -fsSL \
+            "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png" \
             -o /tmp/obacamera/app/src/main/res/drawable/icon.png
 
-          sed -i 's#<application#<application android:icon="@drawable/icon"#' \
+          test -s /tmp/obacamera/app/src/main/res/drawable/icon.png
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("/tmp/obacamera/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+
+          # 既存の icon / roundIcon を削除
+          s = re.sub(r'\s+android:icon="[^"]*"', '', s)
+          s = re.sub(r'\s+android:roundIcon="[^"]*"', '', s)
+
+          # application に確実に設定
+          s = s.replace(
+              '<application',
+              '<application android:icon="@drawable/icon" android:roundIcon="@drawable/icon"',
+              1
+          )
+
+          p.write_text(s)
+
+          print("=== AndroidManifest.xml ===")
+          print(s)
+          PY
+
+      - name: Verify icon
+        run: |
+          echo "=== Icon file ==="
+          ls -lh /tmp/obacamera/app/src/main/res/drawable/icon.png
+
+          echo "=== Manifest icon ==="
+          grep -o 'android:icon="[^"]*"' \
             /tmp/obacamera/app/src/main/AndroidManifest.xml
 
-          test -s /tmp/obacamera/app/src/main/res/drawable/icon.png
+          echo "=== Manifest roundIcon ==="
+          grep -o 'android:roundIcon="[^"]*"' \
+            /tmp/obacamera/app/src/main/AndroidManifest.xml
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -48,7 +87,14 @@ jobs:
 
       - name: Build APK
         working-directory: /tmp/obacamera
-        run: gradle assembleDebug
+        run: |
+          gradle assembleDebug
+
+      - name: Verify APK
+        run: |
+          test -s /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
+          echo "APK created successfully"
+          ls -lh /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
