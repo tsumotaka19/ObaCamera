@@ -122,8 +122,9 @@ jobs:
 
           mkdir -p "$RES/raw"
 
+
           # ----------------------------------------
-          # カシャ系シャッター音をWAV生成
+          # カメラの「カシャッ」系シャッター音を生成
           # ----------------------------------------
           python3 - <<'PY'
           import math
@@ -133,10 +134,10 @@ jobs:
           from pathlib import Path
 
           sample_rate = 44100
-          duration = 0.18
+          duration = 0.22
           total = int(sample_rate * duration)
 
-          random.seed(12345)
+          random.seed(24680)
 
           output = Path(
               "/tmp/obacamera/app/src/main/res/raw/shutter.wav"
@@ -150,47 +151,92 @@ jobs:
               for i in range(total):
                   t = i / sample_rate
 
-                  click_env = math.exp(-t * 180.0)
+                  # --------------------------------
+                  # 「カ」
+                  # 瞬間的な機械式クリック
+                  # --------------------------------
+                  click_env = math.exp(-t * 260.0)
 
                   click = (
-                      0.70 * math.sin(2.0 * math.pi * 3200.0 * t)
-                      + 0.35 * math.sin(2.0 * math.pi * 6100.0 * t)
-                      + 0.20 * math.sin(2.0 * math.pi * 9200.0 * t)
+                      0.70 * math.sin(
+                          2.0 * math.pi * 2200.0 * t
+                      )
+                      +
+                      0.38 * math.sin(
+                          2.0 * math.pi * 4200.0 * t
+                      )
+                      +
+                      0.18 * math.sin(
+                          2.0 * math.pi * 7200.0 * t
+                      )
                   ) * click_env
 
-                  noise_env = math.exp(
-                      -max(0.0, t - 0.008) * 32.0
-                  )
 
-                  noise = (
-                      random.uniform(-1.0, 1.0)
-                      * noise_env
-                      * (1.0 if t >= 0.008 else 0.0)
-                  )
+                  # --------------------------------
+                  # 「シャ」
+                  # 短い機械摩擦音
+                  # --------------------------------
+                  if t >= 0.006:
+                      noise_env = math.exp(
+                          -(t - 0.006) * 24.0
+                      )
 
+                      noise = (
+                          random.uniform(-1.0, 1.0)
+                          * noise_env
+                      )
+                  else:
+                      noise = 0.0
+
+
+                  # --------------------------------
+                  # ボディの低～中域
+                  # --------------------------------
                   body_env = math.exp(
-                      -max(0.0, t - 0.006) * 22.0
+                      -max(0.0, t - 0.004) * 19.0
                   )
 
                   body = (
-                      0.28 * math.sin(2.0 * math.pi * 850.0 * t)
-                      + 0.16 * math.sin(2.0 * math.pi * 1250.0 * t)
+                      0.42 * math.sin(
+                          2.0 * math.pi * 760.0 * t
+                      )
+                      +
+                      0.24 * math.sin(
+                          2.0 * math.pi * 1180.0 * t
+                      )
                   ) * body_env
 
+
+                  # --------------------------------
+                  # 全体を合成
+                  # --------------------------------
                   value = (
-                      click * 0.55
-                      + noise * 0.18
-                      + body * 0.35
+                      click * 0.46
+                      +
+                      noise * 0.20
+                      +
+                      body * 0.34
                   )
 
+
+                  # 最後を自然に消す
                   fade = min(
                       1.0,
-                      max(0.0, (duration - t) / 0.025)
+                      max(
+                          0.0,
+                          (duration - t) / 0.035
+                      )
                   )
 
                   value *= fade
 
-                  value = max(-1.0, min(1.0, value))
+
+                  # 安全な範囲へ
+                  value = max(
+                      -1.0,
+                      min(1.0, value)
+                  )
+
 
                   wav.writeframes(
                       struct.pack(
@@ -200,7 +246,9 @@ jobs:
                   )
 
           print("SHUTTER SOUND CREATED")
-          print(output)
+          print("FILE:", output)
+          print("SAMPLE RATE:", sample_rate)
+          print("DURATION:", duration)
           PY
 
           test -s "$RES/raw/shutter.wav"
@@ -249,7 +297,6 @@ jobs:
           import android.Manifest;
           import android.content.ContentValues;
           import android.content.pm.PackageManager;
-          import android.media.AudioAttributes;
           import android.media.SoundPool;
           import android.os.Build;
           import android.os.Bundle;
@@ -391,21 +438,19 @@ jobs:
 
               private void initializeShutterSound() {
 
-                  AudioAttributes audioAttributes =
-                          new AudioAttributes.Builder()
-                                  .setUsage(
-                                          AudioAttributes.USAGE_ASSISTANCE_SONIFICATION
-                                  )
-                                  .setContentType(
-                                          AudioAttributes.CONTENT_TYPE_SONIFICATION
-                                  )
-                                  .build();
-
+                  /*
+                   * SoundPoolのデフォルトAudioAttributesは
+                   * USAGE_MEDIA。
+                   *
+                   * USAGE_ASSISTANCE_SONIFICATIONを明示すると
+                   * 端末によってはシステム音量側へルーティングされ、
+                   * 今回のような短い効果音が聞こえなくなる可能性があるため、
+                   * 明示指定せずMedia系として再生する。
+                   */
 
                   soundPool =
                           new SoundPool.Builder()
                                   .setMaxStreams(1)
-                                  .setAudioAttributes(audioAttributes)
                                   .build();
 
 
@@ -599,8 +644,10 @@ jobs:
                           ).build();
 
 
-                  // カシャ系シャッター音
+                  // --------------------------------
+                  // カシャッ
                   // 左右とも50%
+                  // --------------------------------
                   soundPool.play(
                           shutterSoundId,
                           0.5f,
