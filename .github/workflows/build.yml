@@ -9,9 +9,6 @@ jobs:
 
     steps:
 
-      # ========================================
-      # 1. 元プロジェクトを取得
-      # ========================================
       - name: Create project
         shell: bash
         run: |
@@ -39,40 +36,63 @@ jobs:
           if not match:
               raise RuntimeError("Embedded project ZIP was not found")
 
-          encoded = re.sub(r"\s+", "", match.group(1))
-          data = base64.b64decode(encoded)
+          data = base64.b64decode(
+              re.sub(r"\s+", "", match.group(1))
+          )
 
           if not data.startswith(b"PK"):
-              raise RuntimeError("Decoded data is not a ZIP file")
+              raise RuntimeError("Decoded project is not a ZIP")
 
           Path("/tmp/obacamera/project.zip").write_bytes(data)
-
-          print("PROJECT ZIP:", len(data), "bytes")
           PY
-
-          test -s /tmp/obacamera/project.zip
 
           cd /tmp/obacamera
           unzip -q project.zip
 
           test -f app/build.gradle
-          test -f app/src/main/java/com/example/obacamera/MainActivity.java
           test -f app/src/main/AndroidManifest.xml
 
           echo "=== PROJECT CREATED ==="
 
 
-      # ========================================
-      # 2. ビルド環境
-      # ========================================
-      - name: Configure build environment
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+
+      - name: Install Android SDK packages
         shell: bash
         run: |
           set -euo pipefail
 
-          cd /tmp/obacamera
+          sdkmanager \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
-          cat > settings.gradle <<'EOF'
+          echo "=== ANDROID SDK READY ==="
+
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+
+      - name: Build APK
+        working-directory: /tmp/obacamera
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== WRITE BUILD CONFIG ==="
+
+          cat > settings.gradle <<'SETTINGS_EOF'
           pluginManagement {
               repositories {
                   google()
@@ -93,33 +113,79 @@ jobs:
 
           rootProject.name = "ObaCamera"
           include(":app")
-          EOF
+          SETTINGS_EOF
 
-          cat > build.gradle <<'EOF'
+          cat > build.gradle <<'ROOT_EOF'
           plugins {
               id 'com.android.application' version '8.6.1' apply false
           }
-          EOF
+          ROOT_EOF
 
-          echo "=== BUILD ENVIRONMENT CONFIGURED ==="
+          cat > app/build.gradle <<'APP_EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.example.obacamera'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.example.obacamera'
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 2
+                  versionName '1.1'
+              }
+          }
+
+          dependencies {
+              def camerax_version = "1.5.3"
+
+              implementation "androidx.camera:camera-core:${camerax_version}"
+              implementation "androidx.camera:camera-camera2:${camerax_version}"
+              implementation "androidx.camera:camera-lifecycle:${camerax_version}"
+              implementation "androidx.camera:camera-view:${camerax_version}"
+              implementation "androidx.activity:activity:1.10.1"
+          }
+          APP_EOF
+
+          echo "=== WRITE MAIN ACTIVITY ==="
+
+          python3 - <<'PY'
+          import base64
+          import gzip
+          from pathlib import Path
+
+          data = gzip.decompress(
+              base64.b64decode(
+                  "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"
+              )
+          )
+
+          path = Path(
+              "app/src/main/java/com/example/obacamera/MainActivity.java"
+          )
+
+          path.write_bytes(data)
+
+          if b"0.60f" not in data:
+              raise RuntimeError("60% shutter button setting missing")
+
+          if b"0.7f" not in data:
+              raise RuntimeError("Shutter volume setting missing")
+
+          if b"R.raw.shutter" not in data:
+              raise RuntimeError("Shutter sound resource missing")
+
+          print("MAIN ACTIVITY: OK")
+          PY
 
 
-      # ========================================
-      # 3. CameraX + シャッター音 + MediaStore
-      # ========================================
-      - name: Configure camera implementation
-        shell: bash
-        run: |
-          set -euo pipefail
+          echo "=== GENERATE SHUTTER SOUND ==="
 
-          RES="/tmp/obacamera/app/src/main/res"
-          mkdir -p "$RES/raw"
+          mkdir -p app/src/main/res/raw
 
-
-          # ========================================
-          # コンパクト版シャッター音をビルド時生成
-          # 承認済みv3の「1回目だけ」の構造を小さく再現
-          # ========================================
           python3 - <<'PY'
           import math
           import random
@@ -129,7 +195,7 @@ jobs:
 
           sr = 16000
           duration = 0.085
-          n = int(sr * duration)
+          count = int(sr * duration)
           rng = random.Random(7319)
 
           lp1 = 0.0
@@ -142,7 +208,7 @@ jobs:
               (0.064, 0.48, 0.011),
           ]
 
-          for i in range(n):
+          for i in range(count):
               t = i / sr
               value = 0.0
 
@@ -193,9 +259,7 @@ jobs:
               for x in samples
           ]
 
-          output = Path(
-              "/tmp/obacamera/app/src/main/res/raw/shutter.wav"
-          )
+          output = Path("app/src/main/res/raw/shutter.wav")
 
           with wave.open(str(output), "wb") as wav:
               wav.setnchannels(1)
@@ -204,162 +268,147 @@ jobs:
 
               for value in samples:
                   wav.writeframes(
-                      struct.pack(
-                          "<h",
-                          int(value * 32767)
-                      )
+                      struct.pack("<h", int(value * 32767))
                   )
 
-          print("SHUTTER SOUND GENERATED")
-          print("SAMPLE RATE:", sr)
+          with wave.open(str(output), "rb") as wav:
+              if wav.getframerate() != 16000:
+                  raise RuntimeError("Bad sample rate")
+
+              if wav.getnchannels() != 1:
+                  raise RuntimeError("Bad channel count")
+
+              if wav.getsampwidth() != 2:
+                  raise RuntimeError("Bad sample width")
+
+          print("SHUTTER WAV: OK")
+          print("BYTES:", output.stat().st_size)
           print("DURATION:", duration)
-          print("PEAK: 0.70")
           PY
 
 
-          test -s "$RES/raw/shutter.wav"
+          echo "=== INSTALL ICON ==="
 
+          RES="app/src/main/res"
+          MANIFEST="app/src/main/AndroidManifest.xml"
+
+          rm -rf \
+            "$RES/mipmap" \
+            "$RES/mipmap-mdpi" \
+            "$RES/mipmap-hdpi" \
+            "$RES/mipmap-xhdpi" \
+            "$RES/mipmap-xxhdpi" \
+            "$RES/mipmap-xxxhdpi" \
+            "$RES/mipmap-anydpi" \
+            "$RES/mipmap-anydpi-v26" \
+            "$RES/mipmap-nodpi"
+
+          mkdir -p "$RES/mipmap-nodpi"
+
+          curl -fsSL \
+            "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png?run=${GITHUB_RUN_ID}" \
+            -o "$RES/mipmap-nodpi/ic_launcher.png"
+
+          test -s "$RES/mipmap-nodpi/ic_launcher.png"
 
           python3 - <<'PY'
-          import wave
           from pathlib import Path
+          import re
 
-          p = Path(
-              "/tmp/obacamera/app/src/main/res/raw/shutter.wav"
+          icon = Path(
+              "app/src/main/res/mipmap-nodpi/ic_launcher.png"
           )
 
-          with wave.open(str(p), "rb") as w:
+          if not icon.read_bytes().startswith(
+              b"\x89PNG\r\n\x1a\n"
+          ):
+              raise RuntimeError("Final icon is not PNG")
 
-              if w.getframerate() != 16000:
-                  raise RuntimeError("Unexpected sample rate")
+          manifest = Path(
+              "app/src/main/AndroidManifest.xml"
+          )
 
-              if w.getnchannels() != 1:
-                  raise RuntimeError("Unexpected channel count")
+          text = manifest.read_text()
 
-              if w.getsampwidth() != 2:
-                  raise RuntimeError("Unexpected sample width")
+          text = re.sub(
+              r'\s+android:icon\s*=\s*"[^"]*"',
+              '',
+              text
+          )
 
-              print("SHUTTER WAV: OK")
-              print("BYTES:", p.stat().st_size)
-              print("CHANNELS:", w.getnchannels())
-              print("SAMPLE WIDTH:", w.getsampwidth())
-              print("SAMPLE RATE:", w.getframerate())
-              print("FRAMES:", w.getnframes())
-              print("DURATION:", w.getnframes() / w.getframerate())
+          text = re.sub(
+              r'\s+android:roundIcon\s*=\s*"[^"]*"',
+              '',
+              text
+          )
+
+          text = text.replace(
+              "<application",
+              '<application android:icon="@mipmap/ic_launcher" '
+              'android:roundIcon="@mipmap/ic_launcher"',
+              1
+          )
+
+          manifest.write_text(text)
+
+          print("ICON: OK")
+          print("MANIFEST: OK")
           PY
 
 
-          # ========================================
-          # app/build.gradle
-          # ========================================
-          cat > /tmp/obacamera/app/build.gradle <<'EOF'
-          plugins {
-              id 'com.android.application'
-          }
+          echo "=== BUILD APK START ==="
 
-          android {
-              namespace 'com.example.obacamera'
-              compileSdk 35
+          java -version
+          gradle --version
 
-              defaultConfig {
-                  applicationId 'com.example.obacamera'
-                  minSdk 26
-                  targetSdk 35
-                  versionCode 2
-                  versionName '1.1'
-              }
-          }
+          gradle clean assembleDebug
 
-          dependencies {
-              def camerax_version = "1.5.3"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
 
-              implementation "androidx.camera:camera-core:${camerax_version}"
-              implementation "androidx.camera:camera-camera2:${camerax_version}"
-              implementation "androidx.camera:camera-lifecycle:${camerax_version}"
-              implementation "androidx.camera:camera-view:${camerax_version}"
+          test -s "$APK"
 
-              implementation "androidx.activity:activity:1.10.1"
-          }
-          EOF
+          echo "=== APK BUILD SUCCESS ==="
+
+          ls -lh "$APK"
 
 
-          # ========================================
-          # MainActivity.java
-          # ========================================
-          cat > /tmp/obacamera/app/src/main/java/com/example/obacamera/MainActivity.java <<'EOF'
-          package com.example.obacamera;
+      - name: Verify APK
+        working-directory: /tmp/obacamera
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          import android.Manifest;
-          import android.content.ContentValues;
-          import android.content.pm.PackageManager;
-          import android.media.SoundPool;
-          import android.os.Build;
-          import android.os.Bundle;
-          import android.os.Environment;
-          import android.provider.MediaStore;
-          import android.view.Gravity;
-          import android.view.WindowManager;
-          import android.widget.Button;
-          import android.widget.FrameLayout;
-          import android.widget.Toast;
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
 
-          import androidx.activity.ComponentActivity;
-          import androidx.annotation.NonNull;
-          import androidx.camera.core.CameraSelector;
-          import androidx.camera.core.ImageCapture;
-          import androidx.camera.core.ImageCaptureException;
-          import androidx.camera.core.Preview;
-          import androidx.camera.lifecycle.ProcessCameraProvider;
-          import androidx.camera.view.PreviewView;
-          import androidx.core.content.ContextCompat;
+          test -s "$APK"
 
-          import com.google.common.util.concurrent.ListenableFuture;
+          echo "=== APK BADGING ==="
+
+          "$AAPT2" dump badging "$APK"
+
+          echo "=== RESOURCE CHECK ==="
+
+          "$AAPT2" dump resources "$APK" | grep -E \
+            "shutter|ic_launcher" | head -50 || true
+
+          echo "=== VERIFY APK SUCCESS ==="
 
 
-          public class MainActivity extends ComponentActivity {
-
-              private static final int REQ_CAMERA = 10;
-
-              private PreviewView previewView;
-              private Button shutter;
-
-              private ImageCapture imageCapture;
-              private ProcessCameraProvider cameraProvider;
-
-              private SoundPool soundPool;
-              private int shutterSoundId = 0;
-
-              private boolean soundReady = false;
-              private boolean cameraReady = false;
+      - name: Upload final APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ObaCamera-FINAL-ICON-CAMERAX
+          path: /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
 
 
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
+      - name: Build completed
+        shell: bash
+        run: |
+          set -euo pipefail
 
-                  getWindow().setStatusBarColor(0xFF000000);
-                  getWindow().setNavigationBarColor(0xFF000000);
+          test -s \
+            /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
 
-                  getWindow().addFlags(
-                          WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                  );
-
-
-                  FrameLayout root = new FrameLayout(this);
-                  root.setBackgroundColor(0xFF000000);
-
-
-                  previewView = new PreviewView(this);
-
-                  previewView.setImplementationMode(
-                          PreviewView.ImplementationMode.PERFORMANCE
-                  );
-
-                  previewView.setScaleType(
-                          PreviewView.ScaleType.FILL_CENTER
-                  );
-
-
-                  root.addView(
-                          previewView,
-                         
+          echo "=== OBA CAMERA APK BUILD COMPLETE ==="
