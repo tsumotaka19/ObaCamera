@@ -9,9 +9,6 @@ jobs:
 
     steps:
 
-      # ========================================
-      # 1. 元プロジェクト取得
-      # ========================================
       - name: Create project
         shell: bash
         run: |
@@ -61,9 +58,6 @@ jobs:
           echo "=== PROJECT CREATED ==="
 
 
-      # ========================================
-      # 2. Java
-      # ========================================
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -71,9 +65,6 @@ jobs:
           java-version: '17'
 
 
-      # ========================================
-      # 3. Android SDK
-      # ========================================
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
@@ -90,18 +81,12 @@ jobs:
           echo "=== ANDROID SDK READY ==="
 
 
-      # ========================================
-      # 4. Gradle
-      # ========================================
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
 
-      # ========================================
-      # 5. APK Build
-      # ========================================
       - name: Build APK
         working-directory: /tmp/obacamera
         shell: bash
@@ -109,9 +94,6 @@ jobs:
           set -euo pipefail
 
 
-          # ========================================
-          # Gradle settings
-          # ========================================
           cat > settings.gradle <<'SETTINGS_EOF'
           pluginManagement {
               repositories {
@@ -145,9 +127,6 @@ jobs:
           ROOT_EOF
 
 
-          # ========================================
-          # app/build.gradle
-          # ========================================
           cat > app/build.gradle <<'APP_EOF'
           plugins {
               id 'com.android.application'
@@ -172,25 +151,17 @@ jobs:
           }
 
           dependencies {
-
               def camerax_version = "1.5.3"
 
               implementation "androidx.camera:camera-core:${camerax_version}"
-
               implementation "androidx.camera:camera-camera2:${camerax_version}"
-
               implementation "androidx.camera:camera-lifecycle:${camerax_version}"
-
               implementation "androidx.camera:camera-view:${camerax_version}"
-
               implementation "androidx.activity:activity:1.10.1"
           }
           APP_EOF
 
 
-          # ========================================
-          # MainActivity.java
-          # ========================================
           cat > app/src/main/java/com/example/obacamera/MainActivity.java <<'JAVA_EOF'
           package com.example.obacamera;
 
@@ -227,51 +198,23 @@ jobs:
 
           public class MainActivity extends ComponentActivity {
 
-
               private static final int REQ_CAMERA = 10;
 
-
               private PreviewView previewView;
-
               private Button shutter;
 
-
               private ImageCapture imageCapture;
-
               private ProcessCameraProvider cameraProvider;
 
-
               private SoundPool soundPool;
-
               private int shutterSoundId;
 
               private boolean soundReady = false;
-
               private boolean cameraReady = false;
 
-
               /*
-               * pointer IDごとに
-               *
-               * 「現在シャッターボタン内にいるか」
-               *
-               * を保持する。
-               *
-               * これにより、
-               *
-               * 指を画面に置いたまま
-               * ↓
-               * ボタンへ入る
-               * ↓
-               * 撮影
-               * ↓
-               * ボタンから出る
-               * ↓
-               * 再びボタンへ入る
-               * ↓
-               * また撮影
-               *
-               * が可能になる。
+               * pointer IDごとの
+               * 「現在ボタン内にいるか」
                */
               private final SparseBooleanArray
                       pointerInsideButton =
@@ -300,9 +243,6 @@ jobs:
                   );
 
 
-                  /*
-                   * 全画面タッチ監視用ViewGroup
-                   */
                   TouchFrameLayout root =
                           new TouchFrameLayout(this);
 
@@ -311,9 +251,6 @@ jobs:
                   );
 
 
-                  /*
-                   * Camera Preview
-                   */
                   previewView =
                           new PreviewView(this);
 
@@ -339,12 +276,6 @@ jobs:
                   );
 
 
-                  /*
-                   * シャッターボタン
-                   *
-                   * 画面幅60%
-                   * 水平方向中央
-                   */
                   shutter =
                           new Button(this);
 
@@ -366,6 +297,14 @@ jobs:
 
                   shutter.setEnabled(false);
 
+                  /*
+                   * 親側でタッチを管理するため、
+                   * Button自身のクリック処理は使わない。
+                   */
+                  shutter.setClickable(false);
+
+                  shutter.setFocusable(false);
+
 
                   int screenWidth =
                           getResources()
@@ -374,7 +313,7 @@ jobs:
 
 
                   int shutterWidth =
-                          (int) (
+                          (int)(
                                   screenWidth * 0.60f
                           );
 
@@ -401,20 +340,6 @@ jobs:
                           shutter,
                           shutterParams
                   );
-
-
-                  /*
-                   * Button自身のクリック処理は使用しない。
-                   *
-                   * 全タッチを親ViewGroup側で
-                   * 統一して判定する。
-                   *
-                   * これにより多点タッチでも
-                   * 判定経路を一本化できる。
-                   */
-                  shutter.setClickable(false);
-
-                  shutter.setFocusable(false);
 
 
                   setContentView(root);
@@ -444,14 +369,11 @@ jobs:
               }
 
 
-              # ========================================
-              # シャッター音
-              # ========================================
               private void initializeShutterSound() {
 
                   soundPool =
                           new SoundPool.Builder()
-                                  .setMaxStreams(1)
+                                  .setMaxStreams(4)
                                   .build();
 
 
@@ -484,10 +406,10 @@ jobs:
               private void updateShutterState() {
 
                   /*
-                   * 撮影中でもボタンを無効化しない。
+                   * 撮影中も無効化しない。
                    *
-                   * 多点タッチによる連続撮影を
-                   * 可能にするため。
+                   * 画面を押したまま
+                   * 別の指でボタンを連打できるようにする。
                    */
                   shutter.setEnabled(
                           cameraReady &&
@@ -500,7 +422,7 @@ jobs:
                       int value
               ) {
 
-                  return (int) (
+                  return (int)(
                           value *
                                   getResources()
                                           .getDisplayMetrics()
@@ -510,9 +432,6 @@ jobs:
               }
 
 
-              # ========================================
-              # CameraX
-              # ========================================
               private void startCamera() {
 
                   cameraReady = false;
@@ -534,7 +453,6 @@ jobs:
 
                                   cameraProvider =
                                           future.get();
-
 
                                   cameraProvider
                                           .unbindAll();
@@ -607,9 +525,6 @@ jobs:
               }
 
 
-              # ========================================
-              # 撮影
-              # ========================================
               private void takePhoto() {
 
                   if (
@@ -657,7 +572,6 @@ jobs:
                                       "/Camera"
                       );
 
-
                       values.put(
                               MediaStore.Images.Media
                                       .IS_PENDING,
@@ -682,7 +596,6 @@ jobs:
 
                   /*
                    * シャッター音
-                   *
                    * 音量0.7
                    */
                   soundPool.play(
@@ -696,15 +609,8 @@ jobs:
 
 
                   /*
-                   * 撮影ボタンを無効化しない。
-                   *
-                   * 指②で撮影
-                   * ↓
-                   * 指②を離す
-                   * ↓
-                   * 指②で再タップ
-                   *
-                   * を可能にする。
+                   * 撮影中でも次の撮影要求を
+                   * 受け付ける。
                    */
                   imageCapture.takePicture(
                           outputOptions,
@@ -725,8 +631,7 @@ jobs:
                                   if (
                                           Build.VERSION.SDK_INT >=
                                                   Build.VERSION_CODES.Q &&
-                                          result.getSavedUri() !=
-                                                  null
+                                          result.getSavedUri() != null
                                   ) {
 
                                       ContentValues publish =
@@ -776,9 +681,19 @@ jobs:
               }
 
 
-              # ========================================
-              # 指ごとの多点タッチ判定
-              # ========================================
+              /*
+               * ========================================
+               * 多点タッチ
+               * ========================================
+               *
+               * dispatchTouchEvent() は
+               * 子Viewへイベントが分配される入口。
+               *
+               * ここでMotionEvent全体を監視するので、
+               * Button / PreviewViewによるイベント処理や
+               * pointer splittingの影響を受けずに
+               * 全pointerを確認できる。
+               */
               private void inspectTouchEvent(
                       MotionEvent event
               ) {
@@ -799,17 +714,17 @@ jobs:
                           event.getActionIndex();
 
 
-                  /*
-                   * Buttonの矩形。
-                   *
-                   * getHitRect()は親View座標系なので
-                   * onInterceptTouchEvent()の座標と
-                   * そのまま比較できる。
-                   */
                   Rect buttonRect =
                           new Rect();
 
 
+                  /*
+                   * getHitRect()は親View座標。
+                   *
+                   * dispatchTouchEvent()の
+                   * MotionEvent座標もroot座標なので
+                   * 直接比較できる。
+                   */
                   shutter.getHitRect(
                           buttonRect
                   );
@@ -817,13 +732,56 @@ jobs:
 
                   /*
                    * ====================================
-                   * 新しい指が接触
+                   * 最初の指
                    * ====================================
                    */
                   if (
                           action ==
-                                  MotionEvent
-                                          .ACTION_DOWN ||
+                                  MotionEvent.ACTION_DOWN
+                  ) {
+
+                      int pointerId =
+                              event.getPointerId(0);
+
+
+                      float x =
+                              event.getX(0);
+
+                      float y =
+                              event.getY(0);
+
+
+                      boolean inside =
+                              buttonRect.contains(
+                                      (int)x,
+                                      (int)y
+                              );
+
+
+                      pointerInsideButton.put(
+                              pointerId,
+                              inside
+                      );
+
+
+                      if (
+                              inside
+                      ) {
+
+                          takePhoto();
+                      }
+
+
+                      return;
+                  }
+
+
+                  /*
+                   * ====================================
+                   * 追加の指
+                   * ====================================
+                   */
+                  if (
                           action ==
                                   MotionEvent
                                           .ACTION_POINTER_DOWN
@@ -848,8 +806,8 @@ jobs:
 
                       boolean inside =
                               buttonRect.contains(
-                                      (int) x,
-                                      (int) y
+                                      (int)x,
+                                      (int)y
                               );
 
 
@@ -860,8 +818,8 @@ jobs:
 
 
                       /*
-                       * 指が最初からボタン内なら
-                       * 即撮影。
+                       * 追加された指が
+                       * ボタン内なら即撮影。
                        */
                       if (
                               inside
@@ -877,18 +835,16 @@ jobs:
 
                   /*
                    * ====================================
-                   * 指が移動
+                   * 指の移動
                    * ====================================
                    *
                    * 全pointerを確認する。
                    *
-                   * 「ボタン外 → ボタン内」
-                   * になった瞬間だけ撮影する。
+                   * 「外 → 内」の瞬間だけ撮影。
                    */
                   if (
                           action ==
-                                  MotionEvent
-                                          .ACTION_MOVE
+                                  MotionEvent.ACTION_MOVE
                   ) {
 
                       int pointerCount =
@@ -914,24 +870,18 @@ jobs:
 
                           boolean inside =
                                   buttonRect.contains(
-                                          (int) x,
-                                          (int) y
+                                          (int)x,
+                                          (int)y
                                   );
 
 
                           boolean wasInside =
-                                  pointerInsideButton
-                                          .get(
-                                                  pointerId,
-                                                  false
-                                          );
+                                  pointerInsideButton.get(
+                                          pointerId,
+                                          false
+                                  );
 
 
-                          /*
-                           * 外 → 内
-                           *
-                           * この瞬間だけ撮影。
-                           */
                           if (
                                   inside &&
                                   !wasInside
@@ -954,12 +904,10 @@ jobs:
 
                   /*
                    * ====================================
-                   * 指が離れた
+                   * 指が1本離れた
                    * ====================================
                    *
-                   * そのpointerだけ状態を消す。
-                   *
-                   * 他の指はそのまま保持する。
+                   * 他の指の状態は維持する。
                    */
                   if (
                           action ==
@@ -984,16 +932,14 @@ jobs:
 
                   /*
                    * ====================================
-                   * 全指が離れた
+                   * 最後の指が離れた
                    * ====================================
                    */
                   if (
                           action ==
-                                  MotionEvent
-                                          .ACTION_UP ||
+                                  MotionEvent.ACTION_UP ||
                           action ==
-                                  MotionEvent
-                                          .ACTION_CANCEL
+                                  MotionEvent.ACTION_CANCEL
                   ) {
 
                       pointerInsideButton.clear();
@@ -1001,12 +947,13 @@ jobs:
               }
 
 
-              # ========================================
-              # 全タッチイベント監視
-              # ========================================
+              /*
+               * ========================================
+               * 全MotionEvent監視
+               * ========================================
+               */
               private class TouchFrameLayout
                       extends FrameLayout {
-
 
                   TouchFrameLayout(
                           Context context
@@ -1017,32 +964,30 @@ jobs:
 
 
                   @Override
-                  public boolean
-                  onInterceptTouchEvent(
+                  public boolean dispatchTouchEvent(
                           MotionEvent event
                   ) {
 
                       /*
-                       * 子Viewへ渡す前に
-                       * 全MotionEventを監視する。
-                       *
-                       * return falseなので、
-                       * Camera PreviewやButtonの
-                       * 通常のイベント配送を奪わない。
+                       * 子Viewへ配送する前に
+                       * 全pointerを確認する。
                        */
                       inspectTouchEvent(
                               event
                       );
 
 
-                      return false;
+                      /*
+                       * 通常のAndroidイベント配送は
+                       * そのまま維持する。
+                       */
+                      return super.dispatchTouchEvent(
+                              event
+                      );
                   }
               }
 
 
-              # ========================================
-              # Permission
-              # ========================================
               @Override
               public void onRequestPermissionsResult(
                       int requestCode,
@@ -1080,9 +1025,6 @@ jobs:
               }
 
 
-              # ========================================
-              # Destroy
-              # ========================================
               @Override
               protected void onDestroy() {
 
@@ -1112,57 +1054,14 @@ jobs:
 
 
           # ========================================
-          # Javaコメントの # を除去
+          # ソース検証
           # ========================================
-          sed -i \
-            's/^              # ========================================/              \/\//g' \
-            app/src/main/java/com/example/obacamera/MainActivity.java
 
-          sed -i \
-            's/^              # シャッター音/              \/\* シャッター音 \*\//g' \
-            app/src/main/java/com/example/obacamera/MainActivity.java
-
-          sed -i \
-            's/^              # CameraX/              \/\* CameraX \*\//g' \
-            app/src/main/java/com/example/obacamera/MainActivity.java
-
-          sed -i \
-            's/^              # 撮影/              \/\* 撮影 \*\//g' \
-            app/src/main/java/com/example/obacamera/MainActivity.java
-
-          sed -i \
-            's/^              # 指ごとの多点タッチ判定/              \/\* 指ごとの多点タッチ判定 \*\//g' \
-            app/src/main/java/com/example/obacamera/MainActivity.java
-
-          sed -i \
-            's/^              # 全タッチイベント監視/              \/\* 全タッチイベント監視 \*\//g' \
-            app/src/main/java/com/example/obacamera/MainActivity.java
-
-          sed -i \
-            's/^              # Permission/              \/\* Permission \*\//g' \
-            app/src/main/java/com/example/obacamera/MainActivity.java
-
-          sed -i \
-            's/^              # Destroy/              \/\* Destroy \*\//g' \
-            app/src/main/java/com/example/obacamera/MainActivity.java
-
-
-          # ========================================
-          # Java構文用の残存 # コメントを除去
-          # ========================================
-          sed -i \
-            '/^[[:space:]]*#[[:space:]]/d' \
-            app/src/main/java/com/example/obacamera/MainActivity.java
-
-
-          # ========================================
-          # ソース確認
-          # ========================================
           test -s \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
           grep -q \
-            "onInterceptTouchEvent" \
+            "dispatchTouchEvent" \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
           grep -q \
@@ -1197,8 +1096,9 @@ jobs:
 
 
           # ========================================
-          # シャッター音生成
+          # シャッター音
           # ========================================
+
           mkdir -p app/src/main/res/raw
 
           python3 - <<'PY'
@@ -1219,7 +1119,6 @@ jobs:
           rng = random.Random(7319)
 
           lp1 = 0.0
-
           lp2 = 0.0
 
           samples = []
@@ -1378,20 +1277,9 @@ jobs:
               "rb"
           ) as wav:
 
-              if wav.getframerate() != 16000:
-                  raise RuntimeError(
-                      "Bad sample rate"
-                  )
-
-              if wav.getnchannels() != 1:
-                  raise RuntimeError(
-                      "Bad channel count"
-                  )
-
-              if wav.getsampwidth() != 2:
-                  raise RuntimeError(
-                      "Bad sample width"
-                  )
+              assert wav.getframerate() == 16000
+              assert wav.getnchannels() == 1
+              assert wav.getsampwidth() == 2
 
 
           print("SHUTTER WAV: OK")
@@ -1411,7 +1299,6 @@ jobs:
           # ========================================
           # アイコン
           # ========================================
-          echo "=== INSTALL ICON ==="
 
           RES="app/src/main/res"
 
@@ -1501,8 +1388,9 @@ jobs:
 
 
           # ========================================
-          # Build
+          # APK Build
           # ========================================
+
           echo "=== BUILD APK START ==="
 
           java -version
@@ -1523,9 +1411,6 @@ jobs:
           ls -lh "$APK"
 
 
-      # ========================================
-      # 6. APK検査
-      # ========================================
       - name: Verify APK
         working-directory: /tmp/obacamera
         shell: bash
@@ -1554,9 +1439,6 @@ jobs:
           echo "=== VERIFY APK SUCCESS ==="
 
 
-      # ========================================
-      # 7. APKアップロード
-      # ========================================
       - name: Upload final APK
         uses: actions/upload-artifact@v4
         with:
@@ -1565,9 +1447,6 @@ jobs:
           if-no-files-found: error
 
 
-      # ========================================
-      # 8. 完了確認
-      # ========================================
       - name: Build completed
         shell: bash
         run: |
