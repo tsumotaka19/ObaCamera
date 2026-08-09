@@ -111,14 +111,98 @@ jobs:
 
 
       # ========================================
-      # 3. CameraX + 撮影 + MediaStore
+      # 3. CameraX + シャッター音 + MediaStore
       # ========================================
       - name: Upgrade camera implementation
         shell: bash
         run: |
-
           set -euo pipefail
 
+          RES="/tmp/obacamera/app/src/main/res"
+
+          mkdir -p "$RES/raw"
+
+          # ----------------------------------------
+          # カシャ系シャッター音をWAVとして生成
+          # 44.1kHz / mono / 約0.18秒
+          # ----------------------------------------
+          python3 - <<'PY'
+          import math
+          import random
+          import wave
+          import struct
+          from pathlib import Path
+
+          sample_rate = 44100
+          duration = 0.18
+          total = int(sample_rate * duration)
+
+          samples = []
+
+          random.seed(12345)
+
+          for i in range(total):
+              t = i / sample_rate
+
+              # 最初の鋭い「カ」
+              click_env = math.exp(-t * 180.0)
+
+              click = (
+                  0.70 * math.sin(2.0 * math.pi * 3200.0 * t) +
+                  0.35 * math.sin(2.0 * math.pi * 6100.0 * t) +
+                  0.20 * math.sin(2.0 * math.pi * 9200.0 * t)
+              ) * click_env
+
+              # 続く「シャ」の短い機械的な響き
+              noise_env = math.exp(-max(0.0, t - 0.008) * 32.0)
+
+              noise = (
+                  random.uniform(-1.0, 1.0)
+                  * noise_env
+                  * (1.0 if t >= 0.008 else 0.0)
+              )
+
+              body_env = math.exp(-max(0.0, t - 0.006) * 22.0)
+
+              body = (
+                  0.28 * math.sin(2.0 * math.pi * 850.0 * t) +
+                  0.16 * math.sin(2.0 * math.pi * 1250.0 * t)
+              ) * body_env
+
+              value = click * 0.55 + noise * 0.18 + body * 0.35
+
+              # わずかにフェードアウト
+              fade = min(1.0, max(0.0, (duration - t) / 0.025))
+              value *= fade
+
+              value = max(-1.0, min(1.0, value))
+
+              samples.append(int(value * 32767))
+
+          output = Path(
+              "/tmp/obacamera/app/src/main/res/raw/shutter.wav"
+          )
+
+          with wave.open(str(output), "wb") as wav:
+              wav.setnchannels(1)
+              wav.setsampwidth(2)
+              wav.setframerate(sample_rate)
+
+              for sample in samples:
+                  wav.writeframes(
+                      struct.pack("<h", sample)
+                  )
+
+          print("SHUTTER SOUND:", output)
+          print("SAMPLES:", len(samples))
+          PY
+
+          test -s "$RES/raw/shutter.wav"
+
+
+          # ----------------------------------------
+          # app/build.gradle
+          # ----------------------------------------
           cat > /tmp/obacamera/app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
@@ -150,13 +234,17 @@ jobs:
           EOF
 
 
+          # ----------------------------------------
+          # MainActivity.java
+          # ----------------------------------------
           cat > /tmp/obacamera/app/src/main/java/com/example/obacamera/MainActivity.java <<'EOF'
           package com.example.obacamera;
 
           import android.Manifest;
           import android.content.ContentValues;
           import android.content.pm.PackageManager;
-          import android.media.MediaActionSound;
+          import android.media.AudioAttributes;
+          import android.media.SoundPool;
           import android.os.Build;
           import android.os.Bundle;
           import android.os.Environment;
@@ -179,6 +267,7 @@ jobs:
 
           import com.google.common.util.concurrent.ListenableFuture;
 
+
           public class MainActivity extends ComponentActivity {
 
               private static final int REQ_CAMERA = 10;
@@ -188,7 +277,11 @@ jobs:
 
               private ImageCapture imageCapture;
               private ProcessCameraProvider cameraProvider;
-              private MediaActionSound shutterSound;
+
+              private SoundPool soundPool;
+              private int shutterSoundId = 0;
+              private boolean soundReady = false;
+              private boolean cameraReady = false;
 
 
               @Override
@@ -266,11 +359,7 @@ jobs:
                   setContentView(root);
 
 
-                  shutterSound = new MediaActionSound();
-
-                  shutterSound.load(
-                          MediaActionSound.SHUTTER_CLICK
-                  );
+                  initializeShutterSound();
 
 
                   if (
@@ -293,6 +382,56 @@ jobs:
               }
 
 
+              private void initializeShutterSound() {
+
+                  AudioAttributes audioAttributes =
+                          new AudioAttributes.Builder()
+                                  .setUsage(
+                                          AudioAttributes.USAGE_ASSISTANCE_SONIFICATION
+                                  )
+                                  .setContentType(
+                                          AudioAttributes.CONTENT_TYPE_SONIFICATION
+                                  )
+                                  .build();
+
+
+                  soundPool =
+                          new SoundPool.Builder()
+                                  .setMaxStreams(1)
+                                  .setAudioAttributes(audioAttributes)
+                                  .build();
+
+
+                  soundPool.setOnLoadCompleteListener(
+                          (pool, sampleId, status) -> {
+
+                              if (status == 0 &&
+                                      sampleId == shutterSoundId) {
+
+                                  soundReady = true;
+                                  updateShutterState();
+                              }
+                          }
+                  );
+
+
+                  shutterSoundId =
+                          soundPool.load(
+                                  this,
+                                  R.raw.shutter,
+                                  1
+                          );
+              }
+
+
+              private void updateShutterState() {
+
+                  shutter.setEnabled(
+                          cameraReady && soundReady
+                  );
+              }
+
+
               private int dp(int value) {
 
                   return (int) (
@@ -307,7 +446,8 @@ jobs:
 
               private void startCamera() {
 
-                  shutter.setEnabled(false);
+                  cameraReady = false;
+                  updateShutterState();
 
 
                   ListenableFuture<ProcessCameraProvider> future =
@@ -362,12 +502,14 @@ jobs:
                                   );
 
 
-                                  shutter.setEnabled(true);
+                                  cameraReady = true;
+                                  updateShutterState();
 
 
                               } catch (Exception e) {
 
-                                  shutter.setEnabled(false);
+                                  cameraReady = false;
+                                  updateShutterState();
 
 
                                   Toast.makeText(
@@ -385,7 +527,11 @@ jobs:
 
               private void takePhoto() {
 
-                  if (imageCapture == null) {
+                  if (
+                          imageCapture == null ||
+                          !cameraReady ||
+                          !soundReady
+                  ) {
                       return;
                   }
 
@@ -440,9 +586,15 @@ jobs:
                           ).build();
 
 
-                  // シャッター音
-                  shutterSound.play(
-                          MediaActionSound.SHUTTER_CLICK
+                  // 「カシャ」系シャッター音
+                  // 左右とも0.5 = 約50%
+                  soundPool.play(
+                          shutterSoundId,
+                          0.5f,
+                          0.5f,
+                          1,
+                          0,
+                          1.0f
                   );
 
 
@@ -482,7 +634,7 @@ jobs:
                                   }
 
 
-                                  shutter.setEnabled(true);
+                                  updateShutterState();
 
 
                                   Toast.makeText(
@@ -499,7 +651,7 @@ jobs:
                                       ImageCaptureException exception
                               ) {
 
-                                  shutter.setEnabled(true);
+                                  updateShutterState();
 
 
                                   Toast.makeText(
@@ -557,9 +709,9 @@ jobs:
                   }
 
 
-                  if (shutterSound != null) {
-                      shutterSound.release();
-                      shutterSound = null;
+                  if (soundPool != null) {
+                      soundPool.release();
+                      soundPool = null;
                   }
 
 
@@ -569,7 +721,7 @@ jobs:
           EOF
 
 
-          echo "=== CAMERA IMPLEMENTATION READY ==="
+          echo "=== CAMERA + SHUTTER SOUND READY ==="
 
 
       # ========================================
@@ -742,44 +894,4 @@ jobs:
 
           set -euo pipefail
 
-          APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk"
-
-          AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
-
-
-          test -s "$APK"
-
-
-          echo "=== APK SIZE ==="
-
-          ls -lh "$APK"
-
-
-          echo "=== MANIFEST ==="
-
-          "$AAPT2" dump badging "$APK" | grep -E \
-            "package:|application-icon|launchable-activity"
-
-
-          echo "=== ICON RESOURCE ==="
-
-          "$AAPT2" dump resources "$APK" > /tmp/resources.txt
-
-
-          grep -E \
-            "mipmap.*ic_launcher" \
-            /tmp/resources.txt | head -30
-
-
-          echo "=== FINAL VERIFICATION SUCCESS ==="
-
-
-      # ========================================
-      # 9. APK Artifact
-      # ========================================
-      - name: Upload final APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ObaCamera-FINAL-ICON-CAMERAX
-          path: /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug
