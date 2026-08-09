@@ -102,15 +102,16 @@ jobs:
           EOF
 
           echo "=== BUILD ENVIRONMENT CONFIGURED ==="
-          echo "Android Gradle Plugin: 8.6.1"
+          echo "AGP: 8.6.1"
           echo "Gradle: 8.7"
           echo "CameraX: 1.5.3"
+          echo "Activity: 1.10.1"
           echo "compileSdk: 35"
           echo "JDK: 17"
 
 
       # ========================================
-      # 3. CameraXへ移行
+      # 3. CameraX + 撮影 + MediaStore
       # ========================================
       - name: Upgrade camera implementation
         shell: bash
@@ -143,6 +144,8 @@ jobs:
               implementation "androidx.camera:camera-camera2:${camerax_version}"
               implementation "androidx.camera:camera-lifecycle:${camerax_version}"
               implementation "androidx.camera:camera-view:${camerax_version}"
+
+              implementation "androidx.activity:activity:1.10.1"
           }
           EOF
 
@@ -151,11 +154,9 @@ jobs:
           package com.example.obacamera;
 
           import android.Manifest;
-          import android.app.Activity;
           import android.content.ContentValues;
           import android.content.pm.PackageManager;
           import android.media.MediaActionSound;
-          import android.net.Uri;
           import android.os.Build;
           import android.os.Bundle;
           import android.os.Environment;
@@ -166,6 +167,7 @@ jobs:
           import android.widget.FrameLayout;
           import android.widget.Toast;
 
+          import androidx.activity.ComponentActivity;
           import androidx.annotation.NonNull;
           import androidx.camera.core.CameraSelector;
           import androidx.camera.core.ImageCapture;
@@ -177,7 +179,7 @@ jobs:
 
           import com.google.common.util.concurrent.ListenableFuture;
 
-          public class MainActivity extends Activity {
+          public class MainActivity extends ComponentActivity {
 
               private static final int REQ_CAMERA = 10;
 
@@ -411,12 +413,6 @@ jobs:
                   );
 
 
-                  values.put(
-                          MediaStore.Images.Media.DATE_TAKEN,
-                          now
-                  );
-
-
                   if (
                           Build.VERSION.SDK_INT >=
                                   Build.VERSION_CODES.Q
@@ -436,35 +432,15 @@ jobs:
                   }
 
 
-                  Uri uri =
-                          getContentResolver().insert(
-                                  MediaStore.Images.Media
-                                          .EXTERNAL_CONTENT_URI,
-                                  values
-                          );
-
-
-                  if (uri == null) {
-
-                      shutter.setEnabled(true);
-
-                      Toast.makeText(
-                              this,
-                              "写真を保存できませんでした",
-                              Toast.LENGTH_SHORT
-                      ).show();
-
-                      return;
-                  }
-
-
                   ImageCapture.OutputFileOptions outputOptions =
                           new ImageCapture.OutputFileOptions.Builder(
                                   getContentResolver(),
-                                  uri
+                                  MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                                  values
                           ).build();
 
 
+                  // シャッター音
                   shutterSound.play(
                           MediaActionSound.SHUTTER_CLICK
                   );
@@ -484,12 +460,12 @@ jobs:
 
                                   if (
                                           Build.VERSION.SDK_INT >=
-                                                  Build.VERSION_CODES.Q
+                                                  Build.VERSION_CODES.Q &&
+                                          result.getSavedUri() != null
                                   ) {
 
                                       ContentValues publish =
                                               new ContentValues();
-
 
                                       publish.put(
                                               MediaStore.Images.Media
@@ -497,9 +473,8 @@ jobs:
                                               0
                                       );
 
-
                                       getContentResolver().update(
-                                              uri,
+                                              result.getSavedUri(),
                                               publish,
                                               null,
                                               null
@@ -523,13 +498,6 @@ jobs:
                                       @NonNull
                                       ImageCaptureException exception
                               ) {
-
-                                  getContentResolver().delete(
-                                          uri,
-                                          null,
-                                          null
-                                  );
-
 
                                   shutter.setEnabled(true);
 
@@ -601,7 +569,7 @@ jobs:
           EOF
 
 
-          echo "=== CAMERAX 1.5.3 IMPLEMENTATION READY ==="
+          echo "=== CAMERA IMPLEMENTATION READY ==="
 
 
       # ========================================
@@ -669,13 +637,11 @@ jobs:
 
           s = p.read_text()
 
-
           s = re.sub(
               r'\s+android:icon\s*=\s*"[^"]*"',
               '',
               s
           )
-
 
           s = re.sub(
               r'\s+android:roundIcon\s*=\s*"[^"]*"',
@@ -683,13 +649,11 @@ jobs:
               s
           )
 
-
           s = s.replace(
               '<application',
               '<application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"',
               1
           )
-
 
           p.write_text(s)
           PY
