@@ -63,7 +63,50 @@ jobs:
 
 
       # ========================================
-      # 2. CameraXへ移行
+      # 2. Gradle / AGPを完全固定
+      # ========================================
+      - name: Configure Gradle and AGP
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd /tmp/obacamera
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "ObaCamera"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          EOF
+
+          echo "=== GRADLE / AGP CONFIGURED ==="
+          echo "AGP: 8.6.1"
+          echo "Gradle: 8.7"
+          echo "JDK: 17"
+
+
+      # ========================================
+      # 3. CameraXへ移行
       # ========================================
       - name: Upgrade camera implementation
         shell: bash
@@ -272,7 +315,6 @@ jobs:
 
                                   cameraProvider = future.get();
 
-
                                   cameraProvider.unbindAll();
 
 
@@ -419,7 +461,6 @@ jobs:
                           ).build();
 
 
-                  // シャッター音
                   shutterSound.play(
                           MediaActionSound.SHUTTER_CLICK
                   );
@@ -560,7 +601,7 @@ jobs:
 
 
       # ========================================
-      # 3. 最終アイコン
+      # 4. 最終アイコン
       # ========================================
       - name: Install final launcher icon
         shell: bash
@@ -659,7 +700,7 @@ jobs:
 
 
       # ========================================
-      # 4. Java / Android SDK
+      # 5. Java / Android SDK
       # ========================================
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -684,16 +725,16 @@ jobs:
 
 
       # ========================================
-      # 5. Gradle
+      # 6. Gradle
       # ========================================
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.2'
+          gradle-version: '8.7'
 
 
       # ========================================
-      # 6. APK Build
+      # 7. APK Build
       # ========================================
       - name: Build APK
         working-directory: /tmp/obacamera
@@ -701,6 +742,12 @@ jobs:
         run: |
 
           set -euo pipefail
+
+          echo "=== BUILD ENVIRONMENT ==="
+          java -version
+          gradle --version
+
+          echo "=== BUILD APK ==="
 
           gradle clean assembleDebug
 
@@ -717,7 +764,7 @@ jobs:
 
 
       # ========================================
-      # 7. APK検査
+      # 8. APK検査
       # ========================================
       - name: Verify APK
         shell: bash
@@ -758,7 +805,7 @@ jobs:
 
 
       # ========================================
-      # 8. APK Artifact
+      # 9. APK Artifact
       # ========================================
       - name: Upload final APK
         uses: actions/upload-artifact@v4
