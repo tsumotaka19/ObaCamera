@@ -8,6 +8,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
+      # ========================================
+      # 1. 元プロジェクトを取得
+      # ========================================
       - name: Create project
         shell: bash
         run: |
@@ -52,18 +56,521 @@ jobs:
           unzip -q project.zip
 
           test -f app/build.gradle
+          test -f app/src/main/java/com/example/obacamera/MainActivity.java
           test -f app/src/main/AndroidManifest.xml
 
           echo "=== PROJECT CREATED ==="
 
+
+      # ========================================
+      # 2. CameraXへ移行
+      # ========================================
+      - name: Upgrade camera implementation
+        shell: bash
+        run: |
+
+          set -euo pipefail
+
+          cat > /tmp/obacamera/app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.example.obacamera'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.example.obacamera'
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 2
+                  versionName '1.1'
+              }
+          }
+
+          dependencies {
+              def camerax_version = "1.6.1"
+
+              implementation "androidx.camera:camera-core:${camerax_version}"
+              implementation "androidx.camera:camera-camera2:${camerax_version}"
+              implementation "androidx.camera:camera-lifecycle:${camerax_version}"
+              implementation "androidx.camera:camera-view:${camerax_version}"
+          }
+          EOF
+
+
+          cat > /tmp/obacamera/app/src/main/java/com/example/obacamera/MainActivity.java <<'EOF'
+          package com.example.obacamera;
+
+          import android.Manifest;
+          import android.app.Activity;
+          import android.content.ContentValues;
+          import android.content.pm.PackageManager;
+          import android.media.MediaActionSound;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Environment;
+          import android.provider.MediaStore;
+          import android.view.Gravity;
+          import android.view.WindowManager;
+          import android.widget.Button;
+          import android.widget.FrameLayout;
+          import android.widget.Toast;
+
+          import androidx.annotation.NonNull;
+          import androidx.camera.core.CameraSelector;
+          import androidx.camera.core.ImageCapture;
+          import androidx.camera.core.ImageCaptureException;
+          import androidx.camera.core.Preview;
+          import androidx.camera.lifecycle.ProcessCameraProvider;
+          import androidx.camera.view.PreviewView;
+          import androidx.core.content.ContextCompat;
+
+          import com.google.common.util.concurrent.ListenableFuture;
+
+          public class MainActivity extends Activity {
+
+              private static final int REQ_CAMERA = 10;
+
+              private PreviewView previewView;
+              private Button shutter;
+
+              private ImageCapture imageCapture;
+              private ProcessCameraProvider cameraProvider;
+              private MediaActionSound shutterSound;
+
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  getWindow().setStatusBarColor(0xFF000000);
+                  getWindow().setNavigationBarColor(0xFF000000);
+
+                  getWindow().addFlags(
+                          WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                  );
+
+
+                  FrameLayout root = new FrameLayout(this);
+                  root.setBackgroundColor(0xFF000000);
+
+
+                  previewView = new PreviewView(this);
+
+                  previewView.setImplementationMode(
+                          PreviewView.ImplementationMode.PERFORMANCE
+                  );
+
+                  previewView.setScaleType(
+                          PreviewView.ScaleType.FILL_CENTER
+                  );
+
+
+                  root.addView(
+                          previewView,
+                          new FrameLayout.LayoutParams(
+                                  -1,
+                                  -1
+                          )
+                  );
+
+
+                  shutter = new Button(this);
+
+                  shutter.setText("写真を撮る");
+                  shutter.setTextSize(22);
+                  shutter.setTextColor(0xFF000000);
+                  shutter.setAllCaps(false);
+                  shutter.setBackgroundColor(0xFFFFFFFF);
+                  shutter.setEnabled(false);
+
+
+                  FrameLayout.LayoutParams shutterParams =
+                          new FrameLayout.LayoutParams(
+                                  -1,
+                                  dp(92),
+                                  Gravity.BOTTOM
+                          );
+
+                  shutterParams.setMargins(
+                          dp(24),
+                          dp(24),
+                          dp(24),
+                          dp(24)
+                  );
+
+
+                  root.addView(
+                          shutter,
+                          shutterParams
+                  );
+
+
+                  shutter.setOnClickListener(
+                          v -> takePhoto()
+                  );
+
+
+                  setContentView(root);
+
+
+                  shutterSound = new MediaActionSound();
+
+                  shutterSound.load(
+                          MediaActionSound.SHUTTER_CLICK
+                  );
+
+
+                  if (
+                          checkSelfPermission(
+                                  Manifest.permission.CAMERA
+                          ) != PackageManager.PERMISSION_GRANTED
+                  ) {
+
+                      requestPermissions(
+                              new String[]{
+                                      Manifest.permission.CAMERA
+                              },
+                              REQ_CAMERA
+                      );
+
+                  } else {
+
+                      startCamera();
+                  }
+              }
+
+
+              private int dp(int value) {
+
+                  return (int) (
+                          value *
+                          getResources()
+                                  .getDisplayMetrics()
+                                  .density
+                          + 0.5f
+                  );
+              }
+
+
+              private void startCamera() {
+
+                  shutter.setEnabled(false);
+
+
+                  ListenableFuture<ProcessCameraProvider> future =
+                          ProcessCameraProvider.getInstance(this);
+
+
+                  future.addListener(
+                          () -> {
+
+                              try {
+
+                                  cameraProvider = future.get();
+
+
+                                  cameraProvider.unbindAll();
+
+
+                                  Preview preview =
+                                          new Preview.Builder()
+                                                  .build();
+
+
+                                  preview.setSurfaceProvider(
+                                          previewView
+                                                  .getSurfaceProvider()
+                                  );
+
+
+                                  imageCapture =
+                                          new ImageCapture.Builder()
+                                                  .setCaptureMode(
+                                                          ImageCapture
+                                                                  .CAPTURE_MODE_MINIMIZE_LATENCY
+                                                  )
+                                                  .setTargetRotation(
+                                                          previewView
+                                                                  .getDisplay()
+                                                                  .getRotation()
+                                                  )
+                                                  .build();
+
+
+                                  CameraSelector selector =
+                                          CameraSelector
+                                                  .DEFAULT_BACK_CAMERA;
+
+
+                                  cameraProvider.bindToLifecycle(
+                                          this,
+                                          selector,
+                                          preview,
+                                          imageCapture
+                                  );
+
+
+                                  shutter.setEnabled(true);
+
+
+                              } catch (Exception e) {
+
+                                  shutter.setEnabled(false);
+
+
+                                  Toast.makeText(
+                                          this,
+                                          "カメラを開始できませんでした",
+                                          Toast.LENGTH_SHORT
+                                  ).show();
+                              }
+
+                          },
+                          ContextCompat.getMainExecutor(this)
+                  );
+              }
+
+
+              private void takePhoto() {
+
+                  if (imageCapture == null) {
+                      return;
+                  }
+
+
+                  shutter.setEnabled(false);
+
+
+                  long now =
+                          System.currentTimeMillis();
+
+
+                  ContentValues values =
+                          new ContentValues();
+
+
+                  values.put(
+                          MediaStore.Images.Media.DISPLAY_NAME,
+                          "IMG_" + now + ".jpg"
+                  );
+
+
+                  values.put(
+                          MediaStore.Images.Media.MIME_TYPE,
+                          "image/jpeg"
+                  );
+
+
+                  values.put(
+                          MediaStore.Images.Media.DATE_TAKEN,
+                          now
+                  );
+
+
+                  if (
+                          Build.VERSION.SDK_INT >=
+                                  Build.VERSION_CODES.Q
+                  ) {
+
+                      values.put(
+                              MediaStore.Images.Media.RELATIVE_PATH,
+                              Environment.DIRECTORY_DCIM +
+                                      "/Camera"
+                      );
+
+
+                      values.put(
+                              MediaStore.Images.Media.IS_PENDING,
+                              1
+                      );
+                  }
+
+
+                  Uri uri =
+                          getContentResolver().insert(
+                                  MediaStore.Images.Media
+                                          .EXTERNAL_CONTENT_URI,
+                                  values
+                          );
+
+
+                  if (uri == null) {
+
+                      shutter.setEnabled(true);
+
+                      Toast.makeText(
+                              this,
+                              "写真を保存できませんでした",
+                              Toast.LENGTH_SHORT
+                      ).show();
+
+                      return;
+                  }
+
+
+                  ImageCapture.OutputFileOptions outputOptions =
+                          new ImageCapture.OutputFileOptions.Builder(
+                                  getContentResolver(),
+                                  uri
+                          ).build();
+
+
+                  // シャッター音
+                  shutterSound.play(
+                          MediaActionSound.SHUTTER_CLICK
+                  );
+
+
+                  imageCapture.takePicture(
+                          outputOptions,
+                          ContextCompat.getMainExecutor(this),
+
+                          new ImageCapture.OnImageSavedCallback() {
+
+                              @Override
+                              public void onImageSaved(
+                                      @NonNull
+                                      ImageCapture.OutputFileResults result
+                              ) {
+
+                                  if (
+                                          Build.VERSION.SDK_INT >=
+                                                  Build.VERSION_CODES.Q
+                                  ) {
+
+                                      ContentValues publish =
+                                              new ContentValues();
+
+
+                                      publish.put(
+                                              MediaStore.Images.Media
+                                                      .IS_PENDING,
+                                              0
+                                      );
+
+
+                                      getContentResolver().update(
+                                              uri,
+                                              publish,
+                                              null,
+                                              null
+                                      );
+                                  }
+
+
+                                  shutter.setEnabled(true);
+
+
+                                  Toast.makeText(
+                                          MainActivity.this,
+                                          "写真を保存しました",
+                                          Toast.LENGTH_SHORT
+                                  ).show();
+                              }
+
+
+                              @Override
+                              public void onError(
+                                      @NonNull
+                                      ImageCaptureException exception
+                              ) {
+
+                                  getContentResolver().delete(
+                                          uri,
+                                          null,
+                                          null
+                                  );
+
+
+                                  shutter.setEnabled(true);
+
+
+                                  Toast.makeText(
+                                          MainActivity.this,
+                                          "撮影に失敗しました",
+                                          Toast.LENGTH_SHORT
+                                  ).show();
+                              }
+                          }
+                  );
+              }
+
+
+              @Override
+              public void onRequestPermissionsResult(
+                      int requestCode,
+                      @NonNull String[] permissions,
+                      @NonNull int[] grantResults
+              ) {
+
+                  super.onRequestPermissionsResult(
+                          requestCode,
+                          permissions,
+                          grantResults
+                  );
+
+
+                  if (
+                          requestCode == REQ_CAMERA &&
+                          grantResults.length > 0 &&
+                          grantResults[0] ==
+                                  PackageManager.PERMISSION_GRANTED
+                  ) {
+
+                      startCamera();
+
+                  } else if (
+                          requestCode == REQ_CAMERA
+                  ) {
+
+                      Toast.makeText(
+                              this,
+                              "カメラの権限が必要です",
+                              Toast.LENGTH_SHORT
+                      ).show();
+                  }
+              }
+
+
+              @Override
+              protected void onDestroy() {
+
+                  if (cameraProvider != null) {
+                      cameraProvider.unbindAll();
+                  }
+
+
+                  if (shutterSound != null) {
+                      shutterSound.release();
+                      shutterSound = null;
+                  }
+
+
+                  super.onDestroy();
+              }
+          }
+          EOF
+
+
+          echo "=== CAMERAX IMPLEMENTATION READY ==="
+
+
+      # ========================================
+      # 3. 最終アイコン
+      # ========================================
       - name: Install final launcher icon
         shell: bash
         run: |
+
           set -euo pipefail
 
           RES="/tmp/obacamera/app/src/main/res"
           MANIFEST="/tmp/obacamera/app/src/main/AndroidManifest.xml"
-          ICON="$RES/mipmap-nodpi/ic_launcher.png"
+
 
           rm -rf \
             "$RES/mipmap" \
@@ -76,33 +583,47 @@ jobs:
             "$RES/mipmap-anydpi-v26" \
             "$RES/mipmap-nodpi"
 
+
           mkdir -p "$RES/mipmap-nodpi"
+
 
           curl -fsSL \
             "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png?run=${GITHUB_RUN_ID}" \
-            -o "$ICON"
+            -o "$RES/mipmap-nodpi/ic_launcher.png"
 
-          test -s "$ICON"
+
+          test -s \
+            "$RES/mipmap-nodpi/ic_launcher.png"
+
 
           python3 - <<'PY'
           from pathlib import Path
 
-          p = Path("/tmp/obacamera/app/src/main/res/mipmap-nodpi/ic_launcher.png")
-          data = p.read_bytes()
+          p = Path(
+              "/tmp/obacamera/app/src/main/res/mipmap-nodpi/ic_launcher.png"
+          )
 
-          if not data.startswith(b"\x89PNG\r\n\x1a\n"):
-              raise RuntimeError("Downloaded icon is not PNG")
+          if not p.read_bytes().startswith(
+              b"\x89PNG\r\n\x1a\n"
+          ):
+              raise RuntimeError(
+                  "Final icon is not PNG"
+              )
 
-          print("FINAL ICON PNG: OK")
-          print("ICON SIZE:", len(data), "bytes")
+          print("FINAL ICON: OK")
           PY
+
 
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          p = Path("/tmp/obacamera/app/src/main/AndroidManifest.xml")
+          p = Path(
+              "/tmp/obacamera/app/src/main/AndroidManifest.xml"
+          )
+
           s = p.read_text()
+
 
           s = re.sub(
               r'\s+android:icon\s*=\s*"[^"]*"',
@@ -110,14 +631,13 @@ jobs:
               s
           )
 
+
           s = re.sub(
               r'\s+android:roundIcon\s*=\s*"[^"]*"',
               '',
               s
           )
 
-          if '<application' not in s:
-              raise RuntimeError("application tag not found")
 
           s = s.replace(
               '<application',
@@ -125,105 +645,124 @@ jobs:
               1
           )
 
+
           p.write_text(s)
           PY
 
-          grep -q 'android:icon="@mipmap/ic_launcher"' "$MANIFEST"
-          grep -q 'android:roundIcon="@mipmap/ic_launcher"' "$MANIFEST"
 
-          echo "=== MANIFEST ICON ==="
-          grep '<application' "$MANIFEST"
+          grep -q \
+            'android:icon="@mipmap/ic_launcher"' \
+            "$MANIFEST"
+
 
           echo "=== ICON INSTALL SUCCESS ==="
 
+
+      # ========================================
+      # 4. Java / Android SDK
+      # ========================================
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+
 
       - name: Install Android SDK packages
         shell: bash
         run: |
+
           set -euo pipefail
 
           sdkmanager \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
+
+      # ========================================
+      # 5. Gradle
+      # ========================================
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.2'
 
+
+      # ========================================
+      # 6. APK Build
+      # ========================================
       - name: Build APK
         working-directory: /tmp/obacamera
         shell: bash
         run: |
+
           set -euo pipefail
 
           gradle clean assembleDebug
 
+
           APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk"
+
 
           test -s "$APK"
 
+
           echo "=== APK BUILD SUCCESS ==="
+
           ls -lh "$APK"
 
-      - name: Verify final icon
+
+      # ========================================
+      # 7. APK検査
+      # ========================================
+      - name: Verify APK
         shell: bash
         run: |
+
           set -euo pipefail
 
           APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk"
+
           AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+
 
           test -s "$APK"
 
-          echo "================================"
-          echo "APK"
-          echo "================================"
+
+          echo "=== APK SIZE ==="
+
           ls -lh "$APK"
 
-          echo "================================"
-          echo "MANIFEST / BADGING"
-          echo "================================"
+
+          echo "=== MANIFEST ==="
 
           "$AAPT2" dump badging "$APK" | grep -E \
-            "application:|launchable activity"
+            "package:|application-icon|launchable-activity"
 
-          echo "================================"
-          echo "SEARCHING APK RESOURCE TABLE"
-          echo "================================"
+
+          echo "=== ICON RESOURCE ==="
 
           "$AAPT2" dump resources "$APK" > /tmp/resources.txt
 
-          if grep -q "mipmap.*ic_launcher" /tmp/resources.txt; then
-            echo "FINAL ICON RESOURCE: FOUND"
-            grep -E "mipmap.*ic_launcher" /tmp/resources.txt | head -30
-          else
-            echo "ERROR: ic_launcher resource was not found"
-            exit 1
-          fi
 
-          echo "================================"
-          echo "APK FILES"
-          echo "================================"
+          grep -E \
+            "mipmap.*ic_launcher" \
+            /tmp/resources.txt | head -30
 
-          unzip -l "$APK" | grep -E \
-            "ic_launcher|mipmap" | head -50 || true
 
-          echo "================================"
-          echo "FINAL ICON VERIFICATION: SUCCESS"
-          echo "================================"
+          echo "=== FINAL VERIFICATION SUCCESS ==="
 
+
+      # ========================================
+      # 8. APK Artifact
+      # ========================================
       - name: Upload final APK
         uses: actions/upload-artifact@v4
         with:
-          name: ObaCamera-FINAL-ICON
+          name: ObaCamera-FINAL-ICON-CAMERAX
           path: /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
