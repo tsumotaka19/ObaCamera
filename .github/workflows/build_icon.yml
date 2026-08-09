@@ -1,4 +1,4 @@
-name: Build ObaCamera APK - Icon
+name: Build ObaCamera APK - FINAL
 
 on:
   workflow_dispatch:
@@ -8,11 +8,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get project from existing workflow
+      - name: Create project
+        shell: bash
         run: |
+          set -e
+
           mkdir -p /tmp/obacamera
 
-          curl -fsSL "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/.github/workflows/build.yml" \
+          curl -fsSL \
+            "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/.github/workflows/build.yml" \
             -o /tmp/build.yml
 
           sed -n "s/.*echo '\([^']*\)' | base64 -d.*/\1/p" /tmp/build.yml \
@@ -20,52 +24,87 @@ jobs:
 
           unzip -q /tmp/obacamera/project.zip -d /tmp/obacamera
 
-      - name: Install icon
+      - name: Install launcher icon
+        shell: bash
         run: |
-          mkdir -p /tmp/obacamera/app/src/main/res/drawable
+          set -e
+
+          APP="/tmp/obacamera/app"
+          RES="$APP/src/main/res"
 
           curl -fsSL \
             "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png" \
-            -o /tmp/obacamera/app/src/main/res/drawable/icon.png
+            -o /tmp/icon.png
 
-          test -s /tmp/obacamera/app/src/main/res/drawable/icon.png
+          test -s /tmp/icon.png
+
+          rm -rf \
+            "$RES/drawable/icon.png" \
+            "$RES/mipmap-mdpi" \
+            "$RES/mipmap-hdpi" \
+            "$RES/mipmap-xhdpi" \
+            "$RES/mipmap-xxhdpi" \
+            "$RES/mipmap-xxxhdpi"
+
+          mkdir -p "$RES/mipmap-mdpi"
+          mkdir -p "$RES/mipmap-hdpi"
+          mkdir -p "$RES/mipmap-xhdpi"
+          mkdir -p "$RES/mipmap-xxhdpi"
+          mkdir -p "$RES/mipmap-xxxhdpi"
+
+          cp /tmp/icon.png "$RES/mipmap-mdpi/ic_launcher.png"
+          cp /tmp/icon.png "$RES/mipmap-hdpi/ic_launcher.png"
+          cp /tmp/icon.png "$RES/mipmap-xhdpi/ic_launcher.png"
+          cp /tmp/icon.png "$RES/mipmap-xxhdpi/ic_launcher.png"
+          cp /tmp/icon.png "$RES/mipmap-xxxhdpi/ic_launcher.png"
+
+          cp /tmp/icon.png "$RES/mipmap-mdpi/ic_launcher_round.png"
+          cp /tmp/icon.png "$RES/mipmap-hdpi/ic_launcher_round.png"
+          cp /tmp/icon.png "$RES/mipmap-xhdpi/ic_launcher_round.png"
+          cp /tmp/icon.png "$RES/mipmap-xxhdpi/ic_launcher_round.png"
+          cp /tmp/icon.png "$RES/mipmap-xxxhdpi/ic_launcher_round.png"
 
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          p = Path("/tmp/obacamera/app/src/main/AndroidManifest.xml")
-          s = p.read_text()
+          manifest = Path(
+              "/tmp/obacamera/app/src/main/AndroidManifest.xml"
+          )
 
-          # 既存の icon / roundIcon を削除
-          s = re.sub(r'\s+android:icon="[^"]*"', '', s)
-          s = re.sub(r'\s+android:roundIcon="[^"]*"', '', s)
+          text = manifest.read_text()
 
-          # application に確実に設定
-          s = s.replace(
-              '<application',
-              '<application android:icon="@drawable/icon" android:roundIcon="@drawable/icon"',
+          text = re.sub(
+              r'\s+android:icon="[^"]*"',
+              '',
+              text
+          )
+
+          text = re.sub(
+              r'\s+android:roundIcon="[^"]*"',
+              '',
+              text
+          )
+
+          text = text.replace(
+              "<application",
+              '<application android:icon="@mipmap/ic_launcher" '
+              'android:roundIcon="@mipmap/ic_launcher_round"',
               1
           )
 
-          p.write_text(s)
-
-          print("=== AndroidManifest.xml ===")
-          print(s)
+          manifest.write_text(text)
           PY
 
-      - name: Verify icon
-        run: |
-          echo "=== Icon file ==="
-          ls -lh /tmp/obacamera/app/src/main/res/drawable/icon.png
-
-          echo "=== Manifest icon ==="
+          echo "=== Manifest ==="
           grep -o 'android:icon="[^"]*"' \
-            /tmp/obacamera/app/src/main/AndroidManifest.xml
+            "$APP/src/main/AndroidManifest.xml"
 
-          echo "=== Manifest roundIcon ==="
           grep -o 'android:roundIcon="[^"]*"' \
-            /tmp/obacamera/app/src/main/AndroidManifest.xml
+            "$APP/src/main/AndroidManifest.xml"
+
+          echo "=== Source icon hash ==="
+          sha256sum /tmp/icon.png
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -76,9 +115,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -90,14 +131,51 @@ jobs:
         run: |
           gradle assembleDebug
 
-      - name: Verify APK
+      - name: Verify APK icon
+        shell: bash
         run: |
-          test -s /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
-          echo "APK created successfully"
-          ls -lh /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
+          set -e
 
-      - name: Upload APK
+          APK="/tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk"
+
+          test -s "$APK"
+
+          echo "=== Android application icon ==="
+
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" \
+            dump badging "$APK" \
+            | grep "application-icon"
+
+          echo "=== Icon files inside APK ==="
+
+          unzip -l "$APK" \
+            | grep -E "mipmap-.*/ic_launcher(_round)?\.png"
+
+          echo "=== Extract icon from APK ==="
+
+          ICON_PATH=$(unzip -Z1 "$APK" \
+            | grep -E 'mipmap-xxxhdpi.*/ic_launcher\.png$' \
+            | head -n 1)
+
+          test -n "$ICON_PATH"
+
+          unzip -p "$APK" "$ICON_PATH" > /tmp/apk_icon.png
+
+          echo "=== Hash comparison ==="
+
+          sha256sum /tmp/icon.png
+          sha256sum /tmp/apk_icon.png
+
+          cmp /tmp/icon.png /tmp/apk_icon.png
+
+          echo ""
+          echo "================================"
+          echo "ICON VERIFICATION: SUCCESS"
+          echo "APK ICON MATCHES SOURCE ICON"
+          echo "================================"
+
+      - name: Upload final APK
         uses: actions/upload-artifact@v4
         with:
-          name: ObaCamera-Icon
+          name: ObaCamera-FINAL-ICON
           path: /tmp/obacamera/app/build/outputs/apk/debug/app-debug.apk
