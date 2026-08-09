@@ -15,6 +15,12 @@ jobs:
           cd /tmp/obacamera
           unzip -q project.zip
 
+          # GitHubトップにアップロードした icon.png をアプリに組み込む
+          mkdir -p /tmp/obacamera/app/src/main/res/drawable
+          curl -L "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png" \
+            -o /tmp/obacamera/app/src/main/res/drawable/icon.png
+          sed -i 's#@mipmap/ic_launcher#@drawable/icon#g; s#@mipmap/ic_launcher_round#@drawable/icon#g' /tmp/obacamera/app/src/main/AndroidManifest.xml
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
