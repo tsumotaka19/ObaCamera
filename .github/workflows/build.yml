@@ -93,7 +93,6 @@ jobs:
         run: |
           set -euo pipefail
 
-
           cat > settings.gradle <<'SETTINGS_EOF'
           pluginManagement {
               repositories {
@@ -139,13 +138,9 @@ jobs:
 
               defaultConfig {
                   applicationId 'com.example.obacamera'
-
                   minSdk 26
-
                   targetSdk 35
-
                   versionCode 2
-
                   versionName '1.1'
               }
           }
@@ -212,10 +207,6 @@ jobs:
               private boolean soundReady = false;
               private boolean cameraReady = false;
 
-              /*
-               * pointer IDごとの
-               * 「現在ボタン内にいるか」
-               */
               private final SparseBooleanArray
                       pointerInsideButton =
                       new SparseBooleanArray();
@@ -227,7 +218,6 @@ jobs:
               ) {
 
                   super.onCreate(savedInstanceState);
-
 
                   getWindow().setStatusBarColor(
                           0xFF000000
@@ -297,10 +287,6 @@ jobs:
 
                   shutter.setEnabled(false);
 
-                  /*
-                   * 親側でタッチを管理するため、
-                   * Button自身のクリック処理は使わない。
-                   */
                   shutter.setClickable(false);
 
                   shutter.setFocusable(false);
@@ -343,7 +329,6 @@ jobs:
 
 
                   setContentView(root);
-
 
                   initializeShutterSound();
 
@@ -405,12 +390,6 @@ jobs:
 
               private void updateShutterState() {
 
-                  /*
-                   * 撮影中も無効化しない。
-                   *
-                   * 画面を押したまま
-                   * 別の指でボタンを連打できるようにする。
-                   */
                   shutter.setEnabled(
                           cameraReady &&
                                   soundReady
@@ -594,10 +573,6 @@ jobs:
                                   .build();
 
 
-                  /*
-                   * シャッター音
-                   * 音量0.7
-                   */
                   soundPool.play(
                           shutterSoundId,
                           0.7f,
@@ -608,10 +583,6 @@ jobs:
                   );
 
 
-                  /*
-                   * 撮影中でも次の撮影要求を
-                   * 受け付ける。
-                   */
                   imageCapture.takePicture(
                           outputOptions,
                           ContextCompat
@@ -637,13 +608,11 @@ jobs:
                                       ContentValues publish =
                                               new ContentValues();
 
-
                                       publish.put(
                                               MediaStore.Images.Media
                                                       .IS_PENDING,
                                               0
                                       );
-
 
                                       getContentResolver()
                                               .update(
@@ -681,19 +650,6 @@ jobs:
               }
 
 
-              /*
-               * ========================================
-               * 多点タッチ
-               * ========================================
-               *
-               * dispatchTouchEvent() は
-               * 子Viewへイベントが分配される入口。
-               *
-               * ここでMotionEvent全体を監視するので、
-               * Button / PreviewViewによるイベント処理や
-               * pointer splittingの影響を受けずに
-               * 全pointerを確認できる。
-               */
               private void inspectTouchEvent(
                       MotionEvent event
               ) {
@@ -701,14 +657,12 @@ jobs:
                   if (
                           shutter == null
                   ) {
-
                       return;
                   }
 
 
                   int action =
                           event.getActionMasked();
-
 
                   int actionIndex =
                           event.getActionIndex();
@@ -718,23 +672,11 @@ jobs:
                           new Rect();
 
 
-                  /*
-                   * getHitRect()は親View座標。
-                   *
-                   * dispatchTouchEvent()の
-                   * MotionEvent座標もroot座標なので
-                   * 直接比較できる。
-                   */
                   shutter.getHitRect(
                           buttonRect
                   );
 
 
-                  /*
-                   * ====================================
-                   * 最初の指
-                   * ====================================
-                   */
                   if (
                           action ==
                                   MotionEvent.ACTION_DOWN
@@ -743,13 +685,11 @@ jobs:
                       int pointerId =
                               event.getPointerId(0);
 
-
                       float x =
                               event.getX(0);
 
                       float y =
                               event.getY(0);
-
 
                       boolean inside =
                               buttonRect.contains(
@@ -757,30 +697,20 @@ jobs:
                                       (int)y
                               );
 
-
                       pointerInsideButton.put(
                               pointerId,
                               inside
                       );
 
 
-                      if (
-                              inside
-                      ) {
-
+                      if (inside) {
                           takePhoto();
                       }
-
 
                       return;
                   }
 
 
-                  /*
-                   * ====================================
-                   * 追加の指
-                   * ====================================
-                   */
                   if (
                           action ==
                                   MotionEvent
@@ -792,7 +722,6 @@ jobs:
                                       actionIndex
                               );
 
-
                       float x =
                               event.getX(
                                       actionIndex
@@ -803,13 +732,11 @@ jobs:
                                       actionIndex
                               );
 
-
                       boolean inside =
                               buttonRect.contains(
                                       (int)x,
                                       (int)y
                               );
-
 
                       pointerInsideButton.put(
                               pointerId,
@@ -817,31 +744,14 @@ jobs:
                       );
 
 
-                      /*
-                       * 追加された指が
-                       * ボタン内なら即撮影。
-                       */
-                      if (
-                              inside
-                      ) {
-
+                      if (inside) {
                           takePhoto();
                       }
-
 
                       return;
                   }
 
 
-                  /*
-                   * ====================================
-                   * 指の移動
-                   * ====================================
-                   *
-                   * 全pointerを確認する。
-                   *
-                   * 「外 → 内」の瞬間だけ撮影。
-                   */
                   if (
                           action ==
                                   MotionEvent.ACTION_MOVE
@@ -860,20 +770,17 @@ jobs:
                           int pointerId =
                                   event.getPointerId(i);
 
-
                           float x =
                                   event.getX(i);
 
                           float y =
                                   event.getY(i);
 
-
                           boolean inside =
                                   buttonRect.contains(
                                           (int)x,
                                           (int)y
                                   );
-
 
                           boolean wasInside =
                                   pointerInsideButton.get(
@@ -886,7 +793,6 @@ jobs:
                                   inside &&
                                   !wasInside
                           ) {
-
                               takePhoto();
                           }
 
@@ -897,18 +803,10 @@ jobs:
                           );
                       }
 
-
                       return;
                   }
 
 
-                  /*
-                   * ====================================
-                   * 指が1本離れた
-                   * ====================================
-                   *
-                   * 他の指の状態は維持する。
-                   */
                   if (
                           action ==
                                   MotionEvent
@@ -920,21 +818,14 @@ jobs:
                                       actionIndex
                               );
 
-
                       pointerInsideButton.delete(
                               pointerId
                       );
-
 
                       return;
                   }
 
 
-                  /*
-                   * ====================================
-                   * 最後の指が離れた
-                   * ====================================
-                   */
                   if (
                           action ==
                                   MotionEvent.ACTION_UP ||
@@ -947,18 +838,12 @@ jobs:
               }
 
 
-              /*
-               * ========================================
-               * 全MotionEvent監視
-               * ========================================
-               */
               private class TouchFrameLayout
                       extends FrameLayout {
 
                   TouchFrameLayout(
                           Context context
                   ) {
-
                       super(context);
                   }
 
@@ -968,19 +853,10 @@ jobs:
                           MotionEvent event
                   ) {
 
-                      /*
-                       * 子Viewへ配送する前に
-                       * 全pointerを確認する。
-                       */
                       inspectTouchEvent(
                               event
                       );
 
-
-                      /*
-                       * 通常のAndroidイベント配送は
-                       * そのまま維持する。
-                       */
                       return super.dispatchTouchEvent(
                               event
                       );
@@ -1053,10 +929,6 @@ jobs:
           JAVA_EOF
 
 
-          # ========================================
-          # ソース検証
-          # ========================================
-
           test -s \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
@@ -1095,10 +967,6 @@ jobs:
           echo "=== MAIN ACTIVITY READY ==="
 
 
-          # ========================================
-          # シャッター音
-          # ========================================
-
           mkdir -p app/src/main/res/raw
 
           python3 - <<'PY'
@@ -1109,12 +977,8 @@ jobs:
           from pathlib import Path
 
           sr = 16000
-
           duration = 0.085
-
-          count = int(
-              sr * duration
-          )
+          count = int(sr * duration)
 
           rng = random.Random(7319)
 
@@ -1123,20 +987,16 @@ jobs:
 
           samples = []
 
-
           events = [
               (0.000, 0.72, 0.006),
               (0.030, 0.58, 0.010),
               (0.064, 0.48, 0.011),
           ]
 
-
           for i in range(count):
 
               t = i / sr
-
               value = 0.0
-
 
               for onset, amp, tau in events:
 
@@ -1144,7 +1004,6 @@ jobs:
 
                   if u < 0.0:
                       continue
-
 
                   env = math.exp(
                       -u / tau
@@ -1154,7 +1013,6 @@ jobs:
                       1.0,
                       u / 0.0006
                   )
-
 
                   r = rng.uniform(
                       -1.0,
@@ -1167,7 +1025,6 @@ jobs:
 
                   hp = r - lp1
 
-
                   r2 = rng.uniform(
                       -1.0,
                       1.0
@@ -1176,7 +1033,6 @@ jobs:
                   lp2 += 0.055 * (
                       r2 - lp2
                   )
-
 
                   texture = (
                       0.62 * hp
@@ -1194,7 +1050,6 @@ jobs:
                           u
                       )
                   )
-
 
                   value += (
                       amp *
@@ -1253,11 +1108,8 @@ jobs:
           ) as wav:
 
               wav.setnchannels(1)
-
               wav.setsampwidth(2)
-
               wav.setframerate(sr)
-
 
               for value in samples:
 
@@ -1283,12 +1135,10 @@ jobs:
 
 
           print("SHUTTER WAV: OK")
-
           print(
               "BYTES:",
               output.stat().st_size
           )
-
           print(
               "DURATION:",
               duration
@@ -1296,14 +1146,8 @@ jobs:
           PY
 
 
-          # ========================================
-          # アイコン
-          # ========================================
-
           RES="app/src/main/res"
-
           MANIFEST="app/src/main/AndroidManifest.xml"
-
 
           rm -rf \
             "$RES/mipmap" \
@@ -1316,16 +1160,13 @@ jobs:
             "$RES/mipmap-anydpi-v26" \
             "$RES/mipmap-nodpi"
 
-
           mkdir -p \
             "$RES/mipmap-nodpi"
-
 
           curl -fsSL \
             "https://raw.githubusercontent.com/tsumotaka19/ObaCamera/main/icon.png?run=${GITHUB_RUN_ID}" \
             -o \
             "$RES/mipmap-nodpi/ic_launcher.png"
-
 
           test -s \
             "$RES/mipmap-nodpi/ic_launcher.png"
@@ -1360,7 +1201,6 @@ jobs:
               text
           )
 
-
           text = re.sub(
               r'\s+android:roundIcon\s*=\s*"[^"]*"',
               '',
@@ -1382,14 +1222,9 @@ jobs:
 
 
           print("ICON: OK")
-
           print("MANIFEST: OK")
           PY
 
-
-          # ========================================
-          # APK Build
-          # ========================================
 
           echo "=== BUILD APK START ==="
 
@@ -1402,9 +1237,7 @@ jobs:
 
           APK="app/build/outputs/apk/debug/app-debug.apk"
 
-
           test -s "$APK"
-
 
           echo "=== APK BUILD SUCCESS ==="
 
@@ -1421,20 +1254,16 @@ jobs:
 
           AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
 
-
           test -s "$APK"
-
 
           echo "=== APK BADGING ==="
 
           "$AAPT2" dump badging "$APK"
 
-
           echo "=== RESOURCE CHECK ==="
 
           "$AAPT2" dump resources "$APK" | grep -E \
             "shutter|ic_launcher" | head -50 || true
-
 
           echo "=== VERIFY APK SUCCESS ==="
 
