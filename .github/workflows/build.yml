@@ -1,4 +1,4 @@
-name: Build ObaCamera APK v1.2
+name: Build ObaCamera APK v1.3
 
 on:
   workflow_dispatch:
@@ -182,9 +182,9 @@ jobs:
 
                   targetSdk 35
 
-                  versionCode 3
+                  versionCode 4
 
-                  versionName "1.2"
+                  versionName "1.3"
               }
           }
 
@@ -209,7 +209,7 @@ jobs:
           # MainActivity.java
           # ========================================
 
-          cat > app/src/main/java/com/example/obacamera/MainActivity.java <<'EOF'
+          cat > app/src/main/java/com/example/obacamera/MainActivity.java <<'JAVA_EOF'
           package com.example.obacamera;
 
           import android.Manifest;
@@ -222,14 +222,16 @@ jobs:
           import android.os.Build;
           import android.os.Bundle;
           import android.os.Environment;
+          import android.os.Handler;
+          import android.os.Looper;
           import android.provider.MediaStore;
           import android.util.SparseBooleanArray;
           import android.view.Gravity;
           import android.view.MotionEvent;
+          import android.view.View;
           import android.view.WindowManager;
           import android.widget.Button;
           import android.widget.FrameLayout;
-          import android.widget.TextView;
           import android.widget.Toast;
 
           import androidx.activity.ComponentActivity;
@@ -249,16 +251,25 @@ jobs:
 
               private static final int REQ_CAMERA = 10;
 
-              private static final String VERSION_NAME = "1.2";
+              /*
+               * アプリバージョン
+               *
+               * Version 1.3
+               * Build 4
+               */
+              private static final String VERSION_NAME = "1.3";
 
-              private static final int VERSION_CODE = 3;
+              private static final int VERSION_CODE = 4;
 
 
               private PreviewView previewView;
 
               private Button shutter;
 
-              private TextView versionLabel;
+              /*
+               * 撮影時の暗転用View
+               */
+              private View flashView;
 
 
               private ImageCapture imageCapture;
@@ -282,10 +293,21 @@ jobs:
                * 「現在シャッターボタン内にいるか」
                *
                * を記録する。
+               *
+               * 2本、3本、4本以上すべて同じ処理。
                */
               private final SparseBooleanArray
                       pointerInsideButton =
                       new SparseBooleanArray();
+
+
+              /*
+               * 暗転解除用Handler
+               */
+              private final Handler flashHandler =
+                      new Handler(
+                              Looper.getMainLooper()
+                      );
 
 
               @Override
@@ -311,6 +333,12 @@ jobs:
                                   .FLAG_KEEP_SCREEN_ON
                   );
 
+
+                  /*
+                   * ====================================
+                   * Root
+                   * ====================================
+                   */
 
                   TouchFrameLayout root =
                           new TouchFrameLayout(this);
@@ -353,69 +381,6 @@ jobs:
 
                   /*
                    * ====================================
-                   * バージョン表示
-                   * ====================================
-                   */
-
-                  versionLabel =
-                          new TextView(this);
-
-                  versionLabel.setText(
-                          "ObaCamera  v"
-                                  + VERSION_NAME
-                                  + "  /  build "
-                                  + VERSION_CODE
-                  );
-
-                  versionLabel.setTextColor(
-                          Color.WHITE
-                  );
-
-                  versionLabel.setTextSize(
-                          12
-                  );
-
-                  versionLabel.setGravity(
-                          Gravity.CENTER
-                  );
-
-                  versionLabel.setPadding(
-                          dp(10),
-                          dp(5),
-                          dp(10),
-                          dp(5)
-                  );
-
-                  versionLabel.setBackgroundColor(
-                          0x99000000
-                  );
-
-
-                  FrameLayout.LayoutParams
-                          versionParams =
-                          new FrameLayout.LayoutParams(
-                                  -2,
-                                  -2,
-                                  Gravity.TOP |
-                                          Gravity.START
-                          );
-
-                  versionParams.setMargins(
-                          dp(10),
-                          dp(10),
-                          0,
-                          0
-                  );
-
-
-                  root.addView(
-                          versionLabel,
-                          versionParams
-                  );
-
-
-                  /*
-                   * ====================================
                    * シャッターボタン
                    * ====================================
                    *
@@ -451,9 +416,9 @@ jobs:
                   );
 
                   /*
-                   * Button自身のクリック処理は使わない。
+                   * Button自身のクリック処理は使用しない。
                    *
-                   * 全MotionEventを親で処理する。
+                   * RootでMotionEventを直接処理する。
                    */
                   shutter.setClickable(
                           false
@@ -501,6 +466,50 @@ jobs:
                   );
 
 
+                  /*
+                   * ====================================
+                   * 撮影時暗転View
+                   * ====================================
+                   *
+                   * 最前面に黒Viewを配置。
+                   *
+                   * 通常時は非表示。
+                   */
+                  flashView =
+                          new View(this);
+
+                  flashView.setBackgroundColor(
+                          Color.BLACK
+                  );
+
+                  flashView.setVisibility(
+                          View.GONE
+                  );
+
+
+                  root.addView(
+                          flashView,
+                          new FrameLayout.LayoutParams(
+                                  -1,
+                                  -1
+                          )
+                  );
+
+
+                  /*
+                   * 暗転Viewがタッチ処理を奪わないようにする。
+                   *
+                   * 実際のタッチ処理はRootが担当。
+                   */
+                  flashView.setClickable(
+                          false
+                  );
+
+                  flashView.setFocusable(
+                          false
+                  );
+
+
                   setContentView(
                           root
                   );
@@ -542,6 +551,12 @@ jobs:
               }
 
 
+              /*
+               * ========================================
+               * シャッター音初期化
+               * ========================================
+               */
+
               private void initializeShutterSound() {
 
                   soundPool =
@@ -575,6 +590,12 @@ jobs:
                           );
               }
 
+
+              /*
+               * ========================================
+               * シャッターボタン状態
+               * ========================================
+               */
 
               private void updateShutterState() {
 
@@ -710,6 +731,59 @@ jobs:
 
               /*
                * ========================================
+               * 撮影時暗転
+               * ========================================
+               *
+               * 黒画面を約100ms表示。
+               *
+               * 撮影処理とは独立しているため、
+               * 多点タッチを阻害しない。
+               */
+
+              private void showCaptureFlash() {
+
+                  if (
+                          flashView == null
+                  ) {
+                      return;
+                  }
+
+
+                  /*
+                   * 前回の解除予約をキャンセル。
+                   *
+                   * 連続撮影時は暗転を継続させる。
+                   */
+                  flashHandler.removeCallbacksAndMessages(
+                          null
+                  );
+
+
+                  flashView.setVisibility(
+                          View.VISIBLE
+                  );
+
+
+                  flashHandler.postDelayed(
+                          () -> {
+
+                              if (
+                                      flashView != null
+                              ) {
+
+                                  flashView.setVisibility(
+                                          View.GONE
+                                  );
+                              }
+
+                          },
+                          100
+                  );
+              }
+
+
+              /*
+               * ========================================
                * 写真撮影
                * ========================================
                */
@@ -724,6 +798,14 @@ jobs:
 
                       return;
                   }
+
+
+                  /*
+                   * 撮影エフェクト
+                   *
+                   * 音とほぼ同時に暗転。
+                   */
+                  showCaptureFlash();
 
 
                   long now =
@@ -800,8 +882,7 @@ jobs:
 
 
                   /*
-                   * 撮影中も次の撮影を
-                   * 受け付ける。
+                   * 撮影中も次の撮影を受け付ける。
                    */
                   imageCapture.takePicture(
                           outputOptions,
@@ -821,6 +902,12 @@ jobs:
                                               result
                               ) {
 
+                                  /*
+                                   * Android 10以降
+                                   *
+                                   * IS_PENDINGを解除して
+                                   * Googleフォト等から認識可能にする。
+                                   */
                                   if (
                                           Build.VERSION.SDK_INT >=
                                                   Build.VERSION_CODES.Q &&
@@ -872,6 +959,11 @@ jobs:
                * ========================================
                * 多点タッチ判定
                * ========================================
+               *
+               * AndroidのMotionEventに含まれる
+               * 全pointerを直接処理する。
+               *
+               * 2本、3本、4本以上すべて対応。
                */
 
               private void inspectTouchEvent(
@@ -899,8 +991,9 @@ jobs:
 
 
                   /*
-                   * shutterの位置はroot座標。
-                   * MotionEventもroot座標。
+                   * shutterの位置はRoot座標。
+                   *
+                   * MotionEventの座標もRoot座標。
                    */
                   shutter.getHitRect(
                           buttonRect
@@ -909,7 +1002,7 @@ jobs:
 
                   /*
                    * ====================================
-                   * 1本目の指
+                   * 最初の指
                    * ====================================
                    */
 
@@ -966,7 +1059,7 @@ jobs:
 
                   /*
                    * ====================================
-                   * 2本目以降の指
+                   * 新しい指が追加された
                    * ====================================
                    */
 
@@ -1025,10 +1118,10 @@ jobs:
 
                   /*
                    * ====================================
-                   * 指の移動
+                   * 指が移動した
                    * ====================================
                    *
-                   * 全pointerを調べる。
+                   * 全pointerを確認。
                    *
                    * 外 → 内
                    *
@@ -1084,8 +1177,6 @@ jobs:
 
                           /*
                            * 外 → 内
-                           *
-                           * この瞬間だけ撮影。
                            */
                           if (
                                   inside &&
@@ -1112,7 +1203,7 @@ jobs:
                    * 1本の指が離れた
                    * ====================================
                    *
-                   * 他の指の状態は残す。
+                   * 他のpointerの状態は残す。
                    */
 
                   if (
@@ -1156,15 +1247,14 @@ jobs:
 
               /*
                * ========================================
-               * 全MotionEventを受け取るView
+               * 全画面タッチ受付
                * ========================================
                *
-               * ここではイベントを子Viewへ
-               * 横流ししない。
+               * 子Viewへイベントを渡さず、
+               * Rootで完全に処理する。
                *
-               * Camera Preview自体はタッチ操作を
-               * 必要としていないため、
-               * 画面タッチを完全にシャッター判定専用にする。
+               * これによりPreviewViewやButtonの
+               * タッチ処理に依存しない。
                */
 
               private class TouchFrameLayout
@@ -1194,9 +1284,7 @@ jobs:
 
                       /*
                        * このアプリでは
-                       * 画面タッチをここで完結させる。
-                       *
-                       * 子Viewへタッチを渡さない。
+                       * タッチ処理をRootで完結。
                        */
                       return true;
                   }
@@ -1255,6 +1343,11 @@ jobs:
               @Override
               protected void onDestroy() {
 
+                  flashHandler.removeCallbacksAndMessages(
+                          null
+                  );
+
+
                   if (
                           cameraProvider != null
                   ) {
@@ -1277,11 +1370,11 @@ jobs:
                   super.onDestroy();
               }
           }
-          EOF
+          JAVA_EOF
 
 
           # ========================================
-          # MainActivity 検証
+          # Java実装チェック
           # ========================================
 
           test -s \
@@ -1324,20 +1417,47 @@ jobs:
 
 
           grep -q \
-            "VERSION_NAME = \"1.2\"" \
+            "setVisibility" \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
 
           grep -q \
-            "VERSION_CODE = 3" \
+            "postDelayed" \
             app/src/main/java/com/example/obacamera/MainActivity.java
 
 
-          echo "=== MAIN ACTIVITY READY ==="
+          grep -q \
+            "100" \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+
+          grep -q \
+            'VERSION_NAME = "1.3"' \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+
+          grep -q \
+            "VERSION_CODE = 4" \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+
+
+          /*
+           * 画面へのバージョン表示が存在しないことを確認。
+           */
+          if grep -q \
+            "ObaCamera  v" \
+            app/src/main/java/com/example/obacamera/MainActivity.java
+          then
+              echo "ERROR: Version label must not be displayed"
+              exit 1
+          fi
+
+
+          echo "=== MAIN ACTIVITY CHECK SUCCESS ==="
 
 
           # ========================================
-          # シャッター音生成
+          # シャッター音
           # ========================================
 
           mkdir -p app/src/main/res/raw
@@ -1662,7 +1782,12 @@ jobs:
           # Build
           # ========================================
 
-          echo "=== OBA CAMERA v1.2 BUILD 3 ==="
+          echo "========================================"
+
+          echo "ObaCamera v1.3 / build 4"
+
+          echo "========================================"
+
 
           java -version
 
@@ -1678,22 +1803,24 @@ jobs:
           test -s "$APK"
 
 
-          mkdir -p /tmp/obacamera/final
+          mkdir -p \
+            /tmp/obacamera/final
 
 
           cp \
             "$APK" \
-            "/tmp/obacamera/final/ObaCamera-v1.2-build3.apk"
+            "/tmp/obacamera/final/ObaCamera-v1.3-build4.apk"
 
 
           test -s \
-            "/tmp/obacamera/final/ObaCamera-v1.2-build3.apk"
+            "/tmp/obacamera/final/ObaCamera-v1.3-build4.apk"
 
 
           echo "=== APK BUILD SUCCESS ==="
 
+
           ls -lh \
-            "/tmp/obacamera/final/ObaCamera-v1.2-build3.apk"
+            "/tmp/obacamera/final/ObaCamera-v1.3-build4.apk"
 
 
       # ========================================
@@ -1707,7 +1834,7 @@ jobs:
           set -euo pipefail
 
 
-          APK="/tmp/obacamera/final/ObaCamera-v1.2-build3.apk"
+          APK="/tmp/obacamera/final/ObaCamera-v1.3-build4.apk"
 
 
           AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
@@ -1719,15 +1846,14 @@ jobs:
           echo "=== APK BADGING ==="
 
 
-          "$AAPT2" dump badging "$APK" | grep -E \
-            "package:|versionCode|versionName|application-icon|launchable-activity"
+          "$AAPT2" dump badging "$APK"
 
 
           echo "=== VERSION CHECK ==="
 
 
           "$AAPT2" dump badging "$APK" | grep \
-            "versionCode='3' versionName='1.2'"
+            "versionCode='4' versionName='1.3'"
 
 
           echo "=== RESOURCE CHECK ==="
@@ -1737,18 +1863,25 @@ jobs:
             "shutter|ic_launcher" | head -50 || true
 
 
+          echo "=== FLASH CHECK ==="
+
+
+          "$AAPT2" dump resources "$APK" | grep \
+            "shutter"
+
+
           echo "=== VERIFY APK SUCCESS ==="
 
 
       # ========================================
-      # 7. APKアップロード
+      # 7. APK Artifact
       # ========================================
 
       - name: Upload final APK
         uses: actions/upload-artifact@v4
         with:
-          name: ObaCamera-v1.2-build3
-          path: /tmp/obacamera/final/ObaCamera-v1.2-build3.apk
+          name: ObaCamera-v1.3-build4
+          path: /tmp/obacamera/final/ObaCamera-v1.3-build4.apk
           if-no-files-found: error
 
 
@@ -1761,14 +1894,12 @@ jobs:
         run: |
           set -euo pipefail
 
-
           test -s \
-            "/tmp/obacamera/final/ObaCamera-v1.2-build3.apk"
-
+            "/tmp/obacamera/final/ObaCamera-v1.3-build4.apk"
 
           echo "========================================"
 
-          echo "OBA CAMERA v1.2 BUILD 3"
+          echo "OBA CAMERA v1.3 BUILD 4"
 
           echo "BUILD COMPLETE"
 
